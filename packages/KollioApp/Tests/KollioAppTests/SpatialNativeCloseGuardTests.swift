@@ -92,6 +92,35 @@ struct SpatialNativeCloseGuardTests {
         #expect(window.delegate !== observation.guardDelegate)
     }
 
+    @Test("Optional AppKit callbacks relay to the original delegate on the main actor")
+    func optionalDelegateForwarding() {
+        final class OriginalDelegate: NSObject, NSWindowDelegate {
+            var keyEvents = 0
+            func windowDidBecomeKey(_ notification: Notification) {
+                keyEvents += 1
+            }
+        }
+
+        let window = window()
+        let original = OriginalDelegate()
+        window.delegate = original
+        let proxy = SpatialNativeCloseDelegate()
+        proxy.attach(to: window)
+        let selector = #selector(NSWindowDelegate.windowDidBecomeKey(_:))
+        #expect(proxy.responds(to: selector))
+        let target = proxy.forwardingTarget(for: selector) as AnyObject?
+        #expect(target === original)
+
+        // This is the route the Objective-C runtime uses after responds(to:).
+        // The callback is forwarded only while the original is still alive.
+        (target as? OriginalDelegate)?.windowDidBecomeKey(
+            Notification(name: NSWindow.didBecomeKeyNotification, object: window)
+        )
+        #expect(original.keyEvents == 1)
+        proxy.detach()
+        #expect(window.delegate === original)
+    }
+
     @Test("Closing labels exist in French and English")
     func localizedClose() {
         for language in ["fr", "en"] {

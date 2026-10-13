@@ -127,12 +127,22 @@ final class SpatialNativeCloseDelegate: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Objective-C invokes forwardingTarget on the macOS main thread.
+    /// MainActor.assumeIsolated asserts that requirement. The unchecked wrapper
+    /// bridges only that synchronously retained delegate reference out of
+    /// the closure; it must never be passed to detached/asynchronous work.
+    private struct MainThreadDelegateTarget: @unchecked Sendable {
+        let delegate: (any NSWindowDelegate)?
+    }
+
     nonisolated override func forwardingTarget(for selector: Selector!) -> Any? {
-        let forwardingDelegate = MainActor.assumeIsolated { previousDelegate }
-        if forwardingDelegate?.responds(to: selector) == true {
-            return forwardingDelegate
+        let forwarding = MainActor.assumeIsolated { () -> MainThreadDelegateTarget in
+            guard let previousDelegate, previousDelegate.responds(to: selector) else {
+                return MainThreadDelegateTarget(delegate: nil)
+            }
+            return MainThreadDelegateTarget(delegate: previousDelegate)
         }
-        return super.forwardingTarget(for: selector)
+        return forwarding.delegate ?? super.forwardingTarget(for: selector)
     }
 
     static func confirm(title: String, detail: String,

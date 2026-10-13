@@ -28,3 +28,10 @@ Rejouer le parcours de fermeture sur une vraie `NSWindow` avec `NSHostingView` e
 
 ## Suite
 Contrôler les messages de dialogue et la navigation clavier/focus avec une personne sur le Mac. Un futur lot séparé décidera si les brouillons doivent bénéficier d'une reprise explicitement consentie, indépendante du fichier canonique.
+
+## Revue de CI — correctif Swift 6
+
+- Situation : la PR C2.14 a révélé une erreur Swift 6 sur le runner Xcode 27 : le proxy AppKit retournait un NSWindowDelegate non Sendable hors du bloc MainActor.assumeIsolated.
+- Task : conserver le comportement du délégué natif sans désactiver les vérifications de concurrence ni affaiblir la protection des brouillons.
+- Actions : le pont de délégation encapsule une référence synchrone dans un type explicitement @unchecked Sendable ; MainActor.assumeIsolated continue d’exiger l’exécution sur le main actor. Aucun transfert à une tâche concurrente.
+- **Résultats locaux PASS :** génération du projet Xcode idempotente ; vrai build macOS Debug Swift 6 réussi ; 6/6 tests de délégation natifs, dont une vérification de transfert du callback optionnel ; 1/1 test de fermeture et réouverture de NSWindow ; **394/394 tests KollioApp en 45 suites**. CI GitHub à revérifier après mise à jour de la PR.
