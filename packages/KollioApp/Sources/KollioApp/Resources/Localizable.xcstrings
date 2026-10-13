@@ -1,6 +1,42 @@
 {
   "sourceLanguage": "fr",
   "strings": {
+    "spatial.selection.noLongerAvailableWithDraft": {
+      "comment": "CAN-02: selection disappeared while the editor held an unfinished draft",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected card is no longer available. Selection was cleared. Your unfinished edit is kept in this window."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La carte sélectionnée n’est plus disponible. La sélection est fermée. Ton édition en cours reste conservée dans cette fenêtre."
+          }
+        }
+      }
+    },
+    "spatial.selection.noLongerAvailable": {
+      "comment": "CAN-02: selected occurrence was hidden, removed or its stable instance identity changed",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected card is no longer available. Selection was cleared."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La carte sélectionnée n’est plus disponible. La sélection est fermée."
+          }
+        }
+      }
+    },
     "spatial.navigation.actions": {
       "comment": "CAN-02 C2.18 contextual access to selected-card actions in compact windows",
       "extractionState": "manual",

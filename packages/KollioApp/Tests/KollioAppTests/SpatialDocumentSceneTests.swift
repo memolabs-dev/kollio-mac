@@ -247,6 +247,92 @@ struct SpatialDocumentSceneTests {
         #expect(abs(soleCopy.y * 640 - 450) < 0.01)
         #expect(document == before)
     }
+    @Test("C2.19 a disappearing visual ID clears selection without choosing a substitute")
+    func missingSelectedTarget() {
+        #expect(!SpatialSelectionContinuity.shouldClear(
+            selectedID: nil, expectedInstanceID: nil,
+            availableIDs: [], currentInstanceID: nil
+        ))
+        #expect(!SpatialSelectionContinuity.shouldClear(
+            selectedID: "card", expectedInstanceID: "instance-a",
+            availableIDs: ["card", "other"], currentInstanceID: "instance-a"
+        ))
+        #expect(SpatialSelectionContinuity.shouldClear(
+            selectedID: "card", expectedInstanceID: "instance-a",
+            availableIDs: ["other"], currentInstanceID: nil
+        ))
+        #expect(SpatialSelectionContinuity.shouldClear(
+            selectedID: "card", expectedInstanceID: nil,
+            availableIDs: ["card"], currentInstanceID: "newly-authored"
+        ))
+    }
+
+    @Test("C2.19 removing the first occurrence never silently selects the surviving sibling")
+    @MainActor
+    func occurrenceIdentityMustSurviveSceneProjectionChanges() throws {
+        var document = SarahFixture.document()
+        let semanticID = try #require(document.content.keys.sorted {
+            $0.rawValue < $1.rawValue
+        }.first)
+        let first = InstanceID("c39-first")
+        let second = InstanceID("c39-second")
+        document.presentation.instances = [
+            NodeInstance(id: first, objectID: semanticID,
+                         position: Position(x: 210, y: 140)),
+            NodeInstance(id: second, objectID: semanticID,
+                         position: Position(x: 670, y: 420))
+        ]
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kollio-c39-selection-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = KollioModel(
+            document: document,
+            service: KollioModel.makeDemoService(languageCode: "fr"),
+            fileStore: DocumentFileStore(directory: folder),
+            languageCode: "fr", mode: .demo
+        )
+        func projection() -> SpatialDocumentScene {
+            SpatialDocumentScene(projection: SpatialDocumentProjection(
+                document: model.document, languageCode: model.languageCode
+            ))
+        }
+        let before = projection()
+        let selectedVisualID = semanticID.rawValue
+        let originalInstance = try #require(before.instanceIDByVisualID[selectedVisualID])
+        #expect(originalInstance == first.rawValue)
+        #expect(before.occurrenceCount(for: selectedVisualID) == 2)
+
+        // Preserve the unfinished edit against the authored semantic identity,
+        // not the visual ID whose mapping may disappear in the next revision.
+        var drafts = SpatialDraftMemory()
+        let originalText = try #require(model.object(semanticID))
+            .text.resolve(languageCode: model.languageCode)
+        let recorded = drafts.keep(
+            objectID: semanticID.rawValue, languageCode: "fr",
+            draft: "Unfinished authored change", original: originalText,
+            version: try #require(model.object(semanticID)).objectVersion
+        )
+        #expect(recorded)
+        #expect(model.removeOccurrence(first))
+        let after = projection()
+        #expect(model.object(semanticID) != nil)
+        #expect(after.occurrenceCount(for: selectedVisualID) == 1)
+        // The remaining occurrence is now assigned the SAME visual ID.
+        #expect(after.instanceIDByVisualID[selectedVisualID] == second.rawValue)
+        #expect(after.nodes.contains { $0.id == selectedVisualID })
+        #expect(SpatialSelectionContinuity.shouldClear(
+            selectedID: selectedVisualID,
+            expectedInstanceID: originalInstance,
+            availableIDs: Set(after.nodes.map(\.id)),
+            currentInstanceID: after.instanceIDByVisualID[selectedVisualID]
+        ))
+        #expect(drafts.draft(for: semanticID.rawValue, languageCode: "fr")?.text
+                == "Unfinished authored change")
+        #expect(SpatialV3Copy(languageCode: "fr")
+            .text("spatial.selection.noLongerAvailable").contains("sélection"))
+        #expect(SpatialV3Copy(languageCode: "en")
+            .text("spatial.selection.noLongerAvailable").contains("Selection"))
+    }
 }
 
 @Suite("Spatial Ink C2.10 — readable graph navigation without pointer gestures")

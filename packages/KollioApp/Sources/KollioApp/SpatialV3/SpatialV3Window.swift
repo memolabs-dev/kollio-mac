@@ -8,11 +8,17 @@ struct SpatialV3WindowView: View {
     private let model: KollioModel?
     @State private var depth = 1
     @State private var selectedID: String?
+    /// A visual ID can be reused by another occurrence after a removal.
+    /// Preserve the selected authored instance ID across scene projections.
+    @State private var selectedInstanceID: String?
     @State private var focusHistory: [String] = []
     @State private var search = ""
     @State private var focusedGroup: Int? = nil
     @State private var newIdeaDraft = ""
     @State private var editingID: String?
+    /// Cache the semantic object before a selected occurrence disappears:
+    /// a later scene can no longer reverse-map its old visual ID.
+    @State private var editingObjectID: String?
     @State private var editDraft = ""
     @State private var editOriginalText = ""
     @State private var editLanguageCode = "fr"
@@ -42,6 +48,16 @@ struct SpatialV3WindowView: View {
         let boundedDepth = model != nil ? 2 : (initialDepth == 2 ? 2 : 1)
         _depth = State(initialValue: boundedDepth)
         _selectedID = State(initialValue: initialSelectedID)
+        if let model, let initialSelectedID {
+            let scene = SpatialDocumentScene(projection: SpatialDocumentProjection(
+                document: model.document, languageCode: model.languageCode
+            ))
+            _selectedInstanceID = State(
+                initialValue: scene.instanceIDByVisualID[initialSelectedID]
+            )
+        } else {
+            _selectedInstanceID = State(initialValue: nil)
+        }
         _newIdeaDraft = State(initialValue: initialNewIdeaDraft)
     }
 
@@ -150,14 +166,13 @@ struct SpatialV3WindowView: View {
     }
 
     private func pauseEditing() {
-        guard let editingID,
-              let semanticID = semanticID(editingID),
-              let editVersion else { return }
+        guard editingID != nil, let editingObjectID, let editVersion else { return }
         let remembered = pausedDrafts.keep(
-            objectID: semanticID, languageCode: editLanguageCode, draft: editDraft,
+            objectID: editingObjectID, languageCode: editLanguageCode, draft: editDraft,
             original: editOriginalText, version: editVersion
         )
         self.editingID = nil
+        self.editingObjectID = nil
         self.editVersion = nil
         editingFieldFocused = false
         if remembered { editFeedback = copy.text("spatial.draft.saved") }
@@ -175,6 +190,7 @@ struct SpatialV3WindowView: View {
         let currentText = object.text.resolve(languageCode: model.languageCode)
         let recovered = pausedDrafts.draft(for: objectID, languageCode: model.languageCode)
         editingID = id
+        editingObjectID = objectID
         editLanguageCode = model.languageCode
         editVersion = recovered?.version ?? object.objectVersion
         editOriginalText = recovered?.original ?? currentText
@@ -185,7 +201,7 @@ struct SpatialV3WindowView: View {
     /// Counts authored edits and unsubmitted ideas which Save does not write.
     /// The active editor and its paused snapshot count as just one draft.
     private var pendingInputCount: Int {
-        let editingKey = editingID.flatMap { semanticID($0) }.map {
+        let editingKey = editingObjectID.map {
             SpatialDraftMemory.Key(objectID: $0, languageCode: editLanguageCode)
         }
         return SpatialPendingInput.count(
@@ -197,9 +213,10 @@ struct SpatialV3WindowView: View {
     }
 
     private func discardActiveDraft() {
-        guard let editingID, let objectID = semanticID(editingID) else { return }
-        pausedDrafts.discard(objectID, languageCode: editLanguageCode)
+        guard editingID != nil, let editingObjectID else { return }
+        pausedDrafts.discard(editingObjectID, languageCode: editLanguageCode)
         self.editingID = nil
+        self.editingObjectID = nil
         self.editVersion = nil
         self.editDraft = ""
         editingFieldFocused = false
@@ -207,15 +224,14 @@ struct SpatialV3WindowView: View {
     }
 
     private var editIsStale: Bool {
-        guard let model, let editingID,
-              let id = semanticID(editingID), let version = editVersion
+        guard let model, let editingObjectID, let version = editVersion
         else { return false }
-        return model.object(ObjectID(id))?.objectVersion != version
+        return model.object(ObjectID(editingObjectID))?.objectVersion != version
     }
 
     private func adoptLatestVersion() {
-        guard let model, let editingID, let id = semanticID(editingID),
-              let object = model.object(ObjectID(id)) else { return }
+        guard let model, let editingObjectID,
+              let object = model.object(ObjectID(editingObjectID)) else { return }
         // Explicit human reconciliation: keep the user's draft untouched,
         // but compare it to the latest current text when pausing again.
         editVersion = object.objectVersion
@@ -245,6 +261,36 @@ struct SpatialV3WindowView: View {
         actionFocusRequest += 1
     }
 
+    private func reconcileSelectionAfterSceneChange() {
+        guard model != nil else { return }
+        let ids = Set(allNodes.map(\.id))
+        // A stale breadcrumb must never navigate to a removed representation.
+        focusHistory.removeAll { !ids.contains($0) }
+        guard let selectedID else { return }
+        let instance = realScene?.instanceIDByVisualID[selectedID]
+        guard SpatialSelectionContinuity.shouldClear(
+            selectedID: selectedID,
+            expectedInstanceID: selectedInstanceID,
+            availableIDs: ids,
+            currentInstanceID: instance
+        ) else { return }
+
+        // A removed first occurrence may pass its semantic visual ID to a
+        // sibling. Clearing is safer than silently selecting that sibling.
+        let neededReturn = editingID != nil || editActionFocused || closeActionFocused
+        let hadEditedText = editingID != nil && editDraft != editOriginalText
+        if editingID != nil { pauseEditing() }
+        focusHistory.removeAll { $0 == selectedID }
+        self.selectedID = nil
+        self.selectedInstanceID = nil
+        editFeedback = copy.text(hadEditedText
+            ? "spatial.selection.noLongerAvailableWithDraft"
+            : "spatial.selection.noLongerAvailable")
+        // Only restore focus if a disappearing editor/inspector owned it.
+        // Do not steal focus from a different field on a model update.
+        if neededReturn { navigationReturnRequest += 1 }
+    }
+
     private func closeOneLevel() {
         switch SpatialEscapeRoute.next(
             editing: editingID != nil, selected: selectedID != nil,
@@ -259,8 +305,8 @@ struct SpatialV3WindowView: View {
     }
 
     private func finishEdit() {
-        guard let model, let editingID, let editVersion,
-              let objectID = semanticID(editingID) else { return }
+        guard let model, editingID != nil, let editVersion,
+              let objectID = editingObjectID else { return }
         // Changing the document's UI language cannot reassign a previously
         // drafted French text to the English variant (or vice versa).
         guard editLanguageCode == model.languageCode else {
@@ -272,6 +318,7 @@ struct SpatialV3WindowView: View {
         if succeeded {
             pausedDrafts.discard(objectID, languageCode: editLanguageCode)
             self.editingID = nil
+            self.editingObjectID = nil
             self.editVersion = nil
             editingFieldFocused = false
             editFeedback = copy.text("spatial.feedback.editApplied")
@@ -403,8 +450,8 @@ struct SpatialV3WindowView: View {
     private func editPanel(for selected: SpatialV3Node) -> some View {
         if model != nil && editingID == selected.id {
             HStack(spacing: 8) {
-                if editIsStale, let model, let id = semanticID(editingID),
-                   let current = model.object(ObjectID(id)) {
+                if editIsStale, let model, let editingObjectID,
+                   let current = model.object(ObjectID(editingObjectID)) {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(copy.text("spatial.draft.conflict"))
                             .font(.caption).foregroundStyle(KollioV3Tokens.Light.ink)
@@ -675,11 +722,20 @@ struct SpatialV3WindowView: View {
                 .id("spatial-v3-canvas")
                 .onChange(of: selectedID) { _, id in
                     if editingID != id && editingID != nil { pauseEditing() }
+                    selectedInstanceID = id.flatMap {
+                        realScene?.instanceIDByVisualID[$0]
+                    }
                     relationTargetID = ""
                     if let id, focusHistory.last != id {
                         focusHistory.append(id)
                         if focusHistory.count > 12 { focusHistory.removeFirst() }
                     }
+                }
+                .onChange(of: allNodes.map(\.id)) { _, _ in
+                    reconcileSelectionAfterSceneChange()
+                }
+                .onChange(of: realScene?.instanceIDByVisualID ?? [:]) { _, _ in
+                    reconcileSelectionAfterSceneChange()
                 }
                 selectionPanel
                 .frame(minHeight: 65, alignment: .topLeading)
@@ -1164,6 +1220,21 @@ enum SpatialSaveFeedback {
         guard saved else { return copy.text("spatial.feedback.saveFailed") }
         guard pendingCount > 0 else { return copy.text("spatial.feedback.saved") }
         return copy.format("spatial.pending.savedButPending", pendingCount)
+    }
+}
+
+/// Visual identities can be reallocated to a sibling representation when
+/// the first authored occurrence is removed. Never silently reselect it.
+enum SpatialSelectionContinuity {
+    static func shouldClear(
+        selectedID: String?,
+        expectedInstanceID: String?,
+        availableIDs: Set<String>,
+        currentInstanceID: String?
+    ) -> Bool {
+        guard let selectedID else { return false }
+        guard availableIDs.contains(selectedID) else { return true }
+        return expectedInstanceID != currentInstanceID
     }
 }
 

@@ -186,4 +186,68 @@ struct SpatialNativeAcceptanceTests {
         #expect(model.document == original)
         print("NATIVE-C38 compact selected actions: \(output) (\(png.count) bytes)")
     }
+
+
+    @Test("C2.19 a lost authored occurrence clears selection in the real native view")
+    @MainActor
+    func nativeSelectionRecovery() throws {
+        guard let output = ProcessInfo.processInfo.environment["KOLLIO_SPATIAL_C39_CAPTURE"]
+        else { return }
+        var document = SarahFixture.document()
+        let objectID = try #require(document.content.keys.sorted {
+            $0.rawValue < $1.rawValue
+        }.first)
+        let first = InstanceID("c39-native-first")
+        let second = InstanceID("c39-native-second")
+        document.presentation.instances = [
+            NodeInstance(id: first, objectID: objectID,
+                         position: Position(x: 180, y: 170)),
+            NodeInstance(id: second, objectID: objectID,
+                         position: Position(x: 690, y: 400))
+        ]
+        let beforeContent = document.content
+        let locale = ProcessInfo.processInfo.environment["KOLLIO_SPATIAL_C29_LANGUAGE"] == "en"
+            ? "en" : "fr"
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kollio-c39-native-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let model = KollioModel(
+            document: document,
+            service: KollioModel.makeDemoService(languageCode: locale),
+            fileStore: DocumentFileStore(directory: folder),
+            languageCode: locale, mode: .demo
+        )
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let frame = NSRect(x: 0, y: 0, width: 760, height: 620)
+        let hosting = NSHostingView(rootView: SpatialV3WindowView(
+            initialSelectedID: objectID.rawValue, model: model
+        ))
+        hosting.frame = frame
+        let window = NSWindow(contentRect: frame, styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.orderFront(nil)
+        defer { window.orderOut(nil); window.close() }
+
+        func screenshot() throws -> Data {
+            hosting.layoutSubtreeIfNeeded()
+            let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+            hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+            return try #require(bitmap.representation(using: .png, properties: [:]))
+        }
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        let priorPixels = try screenshot()
+        #expect(model.removeOccurrence(first))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.8))
+        let afterPixels = try screenshot()
+        try afterPixels.write(to: URL(fileURLWithPath: output), options: .atomic)
+        #expect(afterPixels != priorPixels)
+        #expect(model.document.content == beforeContent)
+        let scene = SpatialDocumentScene(projection: SpatialDocumentProjection(
+            document: model.document, languageCode: model.languageCode
+        ))
+        #expect(scene.instanceIDByVisualID[objectID.rawValue] == second.rawValue)
+        print("NATIVE-C39 orphaned selection capture \(output) (\(afterPixels.count) bytes)")
+    }
 }
