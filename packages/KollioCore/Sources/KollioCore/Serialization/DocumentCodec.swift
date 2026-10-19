@@ -87,6 +87,7 @@ public enum KollioID {
     public static func object(_ seed: String) -> ObjectID { ObjectID("object:\(seed)") }
     public static func relationship(_ seed: String) -> RelationshipID { RelationshipID("relationship:\(seed)") }
     public static func decision(_ seed: String) -> DecisionID { DecisionID("decision:\(seed)") }
+    public static func experiment(_ seed: String) -> ExperimentID { ExperimentID("experiment:\(seed)") }
     public static func instance(_ seed: String) -> InstanceID { InstanceID("instance:\(seed)") }
     public static func contribution(_ seed: String) -> ActorID { ActorID("contribution:\(seed)") }
 }

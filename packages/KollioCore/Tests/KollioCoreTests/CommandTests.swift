@@ -4,6 +4,40 @@ import Testing
 
 @Suite("Commands and transactions")
 struct CommandTests {
+    @Test("Renaming changes document identity without changing its contents")
+    func renameDocument() throws {
+        var store = DocumentStore(document: Fixture.sarah())
+        let before = store.document
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+
+        try store.apply([.renameDocument(.init(
+            title: "  Sarah launch plan  ",
+            provenance: .human("owner")
+        ))], at: date)
+
+        #expect(store.document.title == "Sarah launch plan")
+        #expect(store.document.content == before.content)
+        #expect(store.document.relationships == before.relationships)
+        #expect(store.document.decisions == before.decisions)
+        #expect(store.document.presentation == before.presentation)
+        #expect(store.revision == before.revision + 1)
+        #expect(store.semanticRevision == before.semanticRevision + 1)
+    }
+
+    @Test("An empty document title is rejected atomically")
+    func rejectsEmptyDocumentTitle() {
+        var store = DocumentStore(document: Fixture.sarah())
+        let before = store.document
+
+        #expect(throws: DocumentError.emptyDocumentTitle) {
+            try store.apply([.renameDocument(.init(
+                title: " \n ",
+                provenance: .human("owner")
+            ))])
+        }
+        #expect(store.document == before)
+    }
+
     @Test("A transaction is atomic: one invalid command changes nothing")
     func atomicity() throws {
         var store = DocumentStore(document: Fixture.sarah())

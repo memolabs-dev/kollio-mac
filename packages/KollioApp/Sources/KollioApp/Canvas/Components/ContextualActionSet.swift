@@ -50,20 +50,32 @@ public struct ContextualActionSet: Hashable, Sendable {
         /// Weigh the selected directions against criteria, without inventing scores.
         case compareDirections
         case composeSynthesis
+        /// Build a validation experiment on this reasoning (DEC-04).
+        case buildExperiment
+        /// Read an experiment already built on this reasoning.
+        case reviewExperiment
+        /// Read what happened to this object, in order (DEC-06).
+        case reviewHistory
 
         /// The French and English label lives in `L10n`, not here, so the String
         /// Catalog stays the only place an interface string is written.
+        ///
+        /// Every value is a key that exists in the catalog. They did not all, and
+        /// `String(localized:)` fails quietly: given a key it cannot find, it
+        /// returns the key. The local action bar was therefore showing
+        /// `explore`, `clarify` and `setAside` in a French window. The check that
+        /// would have caught it is in `ContextualActionLabelTests`.
         public var localizationKey: String {
             switch self {
-            case .explore: return "explore"
-            case .add: return "clarify"
-            case .setAside: return "setAside"
-            case .reopen: return "reopen"
-            case .edit: return "edit"
-            case .addSource: return "addSource"
-            case .assertClaim: return "claimComposerPrompt"
-            case .link: return "link"
-            case .comment: return "comment"
+            case .explore: return "canvas.explore"
+            case .add: return "canvas.add"
+            case .setAside: return "canvas.setAside"
+            case .reopen: return "canvas.reopen"
+            case .edit: return "canvas.edit"
+            case .addSource: return "source.add"
+            case .assertClaim: return "claim.composerPrompt"
+            case .link: return "action.link"
+            case .comment: return "action.comment"
             case .duplicateOccurrence: return "action.duplicateOccurrence"
             case .duplicateVariant: return "action.duplicateVariant"
             case .removeOccurrence: return "action.removeOccurrence"
@@ -72,6 +84,9 @@ public struct ContextualActionSet: Hashable, Sendable {
             case .groupInFrame: return "frame.group"
             case .compareDirections: return "comparison.action"
             case .composeSynthesis: return "summary.action"
+            case .buildExperiment: return "experiment.composerPrompt"
+            case .reviewExperiment: return "experiment.reviewAction"
+            case .reviewHistory: return "history.reviewAction"
             }
         }
     }
@@ -112,6 +127,7 @@ public struct ContextualActionSet: Hashable, Sendable {
             return .meaning
         case .explore, .add, .setAside, .reopen, .edit, .addSource,
              .assertClaim, .link, .comment, .reviewImpact, .groupInFrame,
+             .buildExperiment, .reviewExperiment, .reviewHistory,
              .compareDirections, .composeSynthesis:
             return .meaning
         }
@@ -135,6 +151,10 @@ public struct ContextualActionSet: Hashable, Sendable {
         primary.contains(kind) || secondary.contains(kind)
     }
 
+    /// Nothing at all is on offer. Used by the reading tour, where CAN-10 keeps
+    /// exit, source and navigation and none of them live in this bar.
+    public var isEmpty: Bool { primary.isEmpty && secondary.isEmpty }
+
     /// The set for an object the model can act on.
     ///
     /// A set-aside direction offers exactly one thing, because there is only one
@@ -148,7 +168,10 @@ public struct ContextualActionSet: Hashable, Sendable {
         canReviewImpact: Bool = false,
         canGroupInFrame: Bool = false,
         canCompareDirections: Bool = false,
-        canComposeSynthesis: Bool = false
+        canComposeSynthesis: Bool = false,
+        canBuildExperiment: Bool = true,
+        canReviewExperiment: Bool = false,
+        canReviewHistory: Bool = false
     ) -> ContextualActionSet {
         if canReopen {
             return ContextualActionSet(primary: [.reopen], secondary: [], isDefault: .reopen)
@@ -174,6 +197,17 @@ public struct ContextualActionSet: Hashable, Sendable {
         // it to be a dead button is an empty document, and a document with nothing
         // in it has no card to open either.
         if canComposeSynthesis { secondary.append(.composeSynthesis) }
+        // An experiment is built on a reasoning, and any object can carry one.
+        // Offered with the claim: both are the person committing to something
+        // they will be held to later.
+        if canBuildExperiment { secondary.append(.buildExperiment) }
+        // Reading comes before building: offered only when an experiment exists,
+        // for the same reason the impact review is. An action that opens an empty
+        // answer trains people to stop opening actions.
+        if canReviewExperiment { secondary.append(.reviewExperiment) }
+        // The history is offered only when something happened: a timeline with
+        // one row that says "created" is an answer to a question nobody asked.
+        if canReviewHistory { secondary.append(.reviewHistory) }
         // Not implemented yet, so not offered. A disabled button is worse than an
         // absent one, and the specification forbids a decorative action.
         //

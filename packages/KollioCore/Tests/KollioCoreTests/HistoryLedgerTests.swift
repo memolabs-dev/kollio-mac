@@ -27,19 +27,19 @@ struct HistoryLedgerTests {
     // MARK: - It records what happened
 
     @Test("An applied action is recorded with what it did and where")
-    func recordsAnAppliedAction() {
+    func recordsAnAppliedAction() throws {
         var session = session()
         let applied = session.apply([add(ctx, "Reduce the flow")], label: "add context")
         #expect(applied)
 
         let entry = session.document.history.entries.first
-        let recorded = try? #require(entry)
-        #expect(recorded?.kind == .applied)
-        #expect(recorded?.label == "add context")
-        #expect(recorded?.commands.count == 1)
-        #expect(recorded?.revisionBefore == 0)
-        #expect(recorded?.revisionAfter == 1)
-        #expect(recorded?.movedMeaning == true)
+        let recorded = try #require(entry)
+        #expect(recorded.kind == .applied)
+        #expect(recorded.label == "add context")
+        #expect(recorded.commands.count == 1)
+        #expect(recorded.revisionBefore == 0)
+        #expect(recorded.revisionAfter == 1)
+        #expect(recorded.movedMeaning == true)
     }
 
     @Test("An action that changed nothing is not recorded")

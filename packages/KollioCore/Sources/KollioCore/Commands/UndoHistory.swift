@@ -76,10 +76,54 @@ public struct KollioSession: Sendable {
     public init(document: KollioDocument = KollioDocument()) {
         self.store = DocumentStore(document: document)
         self.history = UndoHistory()
+        self.journalBase = try? DocumentCodec.encode(document)
+    }
+
+    /// The document as it stood before the first action recorded in *this*
+    /// session, encoded.
+    ///
+    /// A replay needs somewhere to start, and "an empty document" is the wrong
+    /// answer for every document that was opened rather than built here: the
+    /// journal records what happened *since*, so replaying from nothing rebuilds
+    /// only the edits and loses the content they were applied to.
+    ///
+    /// It is deliberately *before the first action*, not the current document.
+    /// Seeding it from the current state makes a preview of the first action
+    /// replay every action on top of an already-finished document and show the
+    /// present instead of the past, which is the one thing a preview must never
+    /// do. It is session state rather than a fact about the document, which is
+    /// why it is not in the document and not in its schema: a file written last
+    /// week and reopened today replays from that file's own content.
+    public private(set) var journalBase: Data?
+
+    /// The document a journal replay starts from.
+    public var journalBaseDocument: KollioDocument {
+        guard let journalBase else { return KollioDocument() }
+        return (try? DocumentCodec.decode(journalBase)) ?? KollioDocument()
     }
 
     public var document: KollioDocument { store.document }
     public var semanticRevision: Int { store.semanticRevision }
+
+    /// Replaces the underlying document entirely. Used for history restore (DEC-06).
+    public mutating func replaceDocument(with document: KollioDocument) {
+        store.replace(with: document)
+    }
+
+    /// Records an entry against the document as it stands, without applying
+    /// commands.
+    ///
+    /// For an action that is not a command batch — a restore, which replaces the
+    /// document wholesale. It appends to the *current* document on purpose: an
+    /// earlier version took the pre-action document as a parameter and wrote it
+    /// back, which silently undid the very restore that had just been recorded.
+    public mutating func recordHistoryEntry(_ entry: HistoryEntry) {
+        var updated = store.document
+        var ledger = updated.history
+        ledger.append(entry)
+        updated.history = ledger
+        store.replace(with: updated)
+    }
 
     /// The history ids of the applied actions, aligned with `history.entries`.
     ///
@@ -92,6 +136,19 @@ public struct KollioSession: Sendable {
     @discardableResult
     public mutating func apply(_ commands: [Command], label: String, at date: Date = Date()) -> Bool {
         let before = store.document
+        // The state an action was applied to is the state a preview of it has to
+        // start from, and it is captured before the action lands. The base moves
+        // with the first action of the session so that it is always exactly the
+        // state before the oldest entry this session can still preview.
+        //
+        // It deliberately moves on *every* first action, including after a
+        // reload: a session that reopened a file has no memory of what came
+        // before its first entry, and the honest base for that first entry is
+        // the file as it was found — not the file as it was left, which would
+        // replay the whole history onto itself.
+        if appliedHistoryIDs.isEmpty {
+            journalBase = try? DocumentCodec.encode(before)
+        }
         var updated = before
         do {
             try store.apply(commands, at: date)

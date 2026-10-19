@@ -1,0 +1,25 @@
+{
+  "project": "Kollio",
+  "pack": "P* Product Pack",
+  "date": "2026-09-27",
+  "count": 16,
+  "files": [
+    "P00_NORTH_STAR.md",
+    "P01_VISION_POSITIONING.md",
+    "P02_PRD.md",
+    "P03_PRODUCT_PRINCIPLES.md",
+    "P04_PERSONAS_JOBS.md",
+    "P05_JOURNEYS_INTERACTION_MODEL.md",
+    "P06_PLATFORM_ARCHITECTURE.md",
+    "P07_INTELLIGENCE_SYSTEM.md",
+    "P08_PRIVACY_SECURITY_TRUST.md",
+    "P09_ROADMAP_GATES.md",
+    "P10_METRICS_QUALITY.md",
+    "P11_BETA_GTM.md",
+    "P12_RISKS_NON_GOALS_DECISIONS.md",
+    "P13_VISUAL_LANGUAGE_V3.md",
+    "P14_AGENT_MASTER_BRIEF.md",
+    "README.md"
+  ],
+  "source_of_truth_note": "Normative implementation requirements remain in the repository SPECIFICATIONS/OpenSpec/CONTINUE hierarchy."
+}

@@ -116,6 +116,11 @@ struct ProposalDecisionView: View {
 struct ActionButton: View {
     let title: String
     var isDefault: Bool = false
+    /// A step that does not exist is not offered as a button that does nothing.
+    /// Added for the presentation card, where the first and last steps have one
+    /// neighbour each and a button that ignores its press is a lie about what the
+    /// keyboard will do.
+    var isEnabled: Bool = true
     let action: () -> Void
 
     @Environment(\.kollioTheme) private var theme
@@ -124,14 +129,15 @@ struct ActionButton: View {
         Button(action: action) {
             Text(title)
                 .font(TypeScale.action)
-                .foregroundStyle(isDefault ? Color.white : theme.textPrimary)
+                .foregroundStyle(isDefault && isEnabled ? Color.white : theme.textPrimary)
                 .padding(.horizontal, Space.m)
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
-                        .fill(isDefault ? theme.accent : theme.surfaceSubtle)
+                        .fill(isDefault && isEnabled ? theme.accent : theme.surfaceSubtle)
                 )
         }
         .buttonStyle(.plain)
+        .disabled(!isEnabled)
     }
 }
