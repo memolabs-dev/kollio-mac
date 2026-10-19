@@ -36,6 +36,22 @@ struct SpatialDocumentEditor {
         ], label: "undo.updateObjectText")
     }
 
+    /// Moves exactly one authored NodeInstance. The existing model commits
+    /// one validated command/undo record, never moving sibling occurrences.
+    @discardableResult
+    func moveOccurrence(_ id: String, by delta: Position) -> Bool {
+        let instanceID = InstanceID(id)
+        guard delta.x.isFinite, delta.y.isFinite,
+              abs(delta.x) > 0.5 || abs(delta.y) > 0.5,
+              let before = model.document.presentation.instance(id: instanceID)?.position
+        else { return false }
+        model.moveInstances([instanceID], by: delta)
+        guard let after = model.document.presentation.instance(id: instanceID)?.position else {
+            return false
+        }
+        return after != before
+    }
+
     /// An explicit, human-authored association. No semantic direction is
     /// guessed from a line drawn with the mouse.
     func associate(_ firstID: String, with secondID: String) -> RelationshipID? {
