@@ -37,6 +37,8 @@ struct CaptureKollioWindow {
     }
 
     private static func capture(to destination: URL) async throws {
+        // Initialize AppKit on the main actor for ScreenCaptureKit in CLI launch contexts.
+        await MainActor.run { _ = NSApplication.shared }
         let content = try await SCShareableContent.excludingDesktopWindows(
             false, onScreenWindowsOnly: true
         )
