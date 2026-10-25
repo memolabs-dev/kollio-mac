@@ -28,7 +28,7 @@ back to.
 ```bash
 # 1. everything, offline (the app never needs the backend)
 ./scripts/run-app.sh            # builds and opens Kollio.app
-./scripts/run-app.sh --shot     # same, plus a screenshot in build/
+./scripts/run-app.sh --shot     # same, plus an isolated Kollio-window screenshot (macOS Screen Recording permission needed)
 
 # 2. every test suite
 ./scripts/test-all.sh
@@ -109,6 +109,9 @@ kollio/
 ```
 
 ## Visual review
+
+The optional `--shot` path uses ScreenCaptureKit with `desktopIndependentWindow` and requires exactly one visible window whose bundle ID is `dev.kollio.app`. It **never records the whole desktop**, never crops another app from display coordinates, and exits nonzero without an image when macOS privacy consent is missing. Grant Screen Recording permission to the terminal or launcher in System Settings and retry. Always inspect the captured pixels before citing them as evidence; screenshot success is not external-user acceptance.
+
 
 `KOLLIO_REVIEW=<state> ./scripts/run-app.sh` opens the app in a given state, so each step of the
 vertical slice can be captured in a screenshot: `explore`, `kept`, `setaside`, `reopened`.
