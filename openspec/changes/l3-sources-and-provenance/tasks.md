@@ -19,6 +19,10 @@ stated on every line rather than blurred.
 - [x] The context budget is measured on the real request path, omissions are
       counted, and a required item is never dropped to fit. `ContextProjectionTests`,
       `AppleAdapterTests`
+- [x] **AI-12 AC01–03** the measured projection is the payload, a required overflow
+      refuses before generation, the narrowed scope survives both Apple conversion
+      paths, and the attribution panel states how many objects were read and omitted.
+      `ContextProjectionTests`, `AppleAdapterTests`, `ProposalAttributionTests`
 - [x] A local-only projection cannot be sent. `ContextProjectionTests`
 - [x] A source is attached through a validated command in one transaction, and a
       transaction that fails halfway attaches nothing. `SourceCommandTests`
@@ -105,7 +109,9 @@ stated on every line rather than blurred.
 
 ## Design pressure worth recording now
 
-`AI-12` is the lot's hardest item and has no code. On-device context is measured
-at 8192 tokens, and the real Apple run already sits at 9 to 15 seconds cold. A
-retrieval step that grows the prompt will make that worse before it makes the
-product better, so budgeting belongs in this lot rather than after it.
+`AI-12` is implemented without retrieval or summarisation: required context is
+prioritised, optional context is narrowed with an explicit record, and an essential
+overflow asks for framing instead of producing an answer about less. Counts are
+declared as characters because the framework does not expose its tokenizer. The
+remaining debt is visual: a person has not inspected the scope row in both languages
+and appearances.

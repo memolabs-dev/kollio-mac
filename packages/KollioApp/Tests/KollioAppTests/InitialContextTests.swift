@@ -104,6 +104,73 @@ struct InitialContextTests {
         #expect(try Data(contentsOf: firstURL) == firstContents)
     }
 
+    @Test("Renaming updates the document and its registry file without changing its work")
+    func renameDocumentUpdatesRegistry() throws {
+        let (store, directory) = isolatedStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = KollioModel(
+            document: KollioDocument(),
+            service: KollioModel.makeDemoService(languageCode: "fr"),
+            fileStore: store
+        )
+        model.start(with: "Keep this exact context")
+        let originalURL = model.documentURL
+        #expect(FileManager.default.fileExists(atPath: originalURL.path))
+
+        #expect(model.renameDocument(to: " Project/Alpha "))
+
+        #expect(model.document.title == "Project/Alpha")
+        #expect(model.documentURL.lastPathComponent == "Project-Alpha.kollio")
+        #expect(FileManager.default.fileExists(atPath: originalURL.path) == false)
+        let reopened = try store.load(model.documentURL)
+        #expect(reopened.title == "Project/Alpha")
+        #expect(reopened.content == model.document.content)
+    }
+
+    @Test("An invalid rename leaves the document and file untouched")
+    func invalidRenameIsAtomic() throws {
+        let (store, directory) = isolatedStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = KollioModel(
+            document: KollioDocument(),
+            service: KollioModel.makeDemoService(languageCode: "fr"),
+            fileStore: store
+        )
+        model.start(with: "Context")
+        let before = model.document
+        let beforeURL = model.documentURL
+        let beforeData = try Data(contentsOf: beforeURL)
+
+        #expect(model.renameDocument(to: "  \n ") == false)
+        #expect(model.document == before)
+        #expect(model.documentURL == beforeURL)
+        #expect(try Data(contentsOf: beforeURL) == beforeData)
+    }
+
+    @Test("Duplicating creates an independent document and preserves the source file")
+    func duplicateDocumentCreatesIndependentFile() throws {
+        let (store, directory) = isolatedStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = KollioModel(
+            document: KollioDocument(),
+            service: KollioModel.makeDemoService(languageCode: "fr"),
+            fileStore: store
+        )
+        model.start(with: "Original context")
+        let original = model.document
+        let originalURL = model.documentURL
+        let originalData = try Data(contentsOf: originalURL)
+
+        #expect(model.duplicateDocument(named: "Working copy"))
+
+        #expect(model.document.documentId != original.documentId)
+        #expect(Set(model.document.content.keys).isDisjoint(with: original.content.keys))
+        #expect(model.document.title == "Working copy")
+        #expect(model.documentURL != originalURL)
+        #expect(try Data(contentsOf: originalURL) == originalData)
+        #expect(try store.load(model.documentURL) == model.document)
+    }
+
     // MARK: The authored context
 
     @Test("The context keeps the exact words that were typed")

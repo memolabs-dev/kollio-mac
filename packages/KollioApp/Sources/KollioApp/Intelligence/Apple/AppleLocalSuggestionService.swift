@@ -57,6 +57,40 @@ public struct AppleLocalSuggestionService: StreamingSuggestionService {
         state.update(probe.availability())
     }
 
+    /// A stream that keeps producing updates but never produces an answer is
+    /// not "still working", it is stuck. The evidence from the first real
+    /// evaluation run: one case streamed 1407 updates over 169 seconds and
+    /// never ended, which is a hang the person waits out forever unless the
+    /// service names it. These are the bounds of "alive": a total wall-clock
+    /// budget, and a span without new snapshots after which the stream is
+    /// abandoned. Both are generous: the measured normal case completes in
+    /// two to six seconds, so the budget exists to cut a hang, not to race
+    /// a working model.
+    public static let streamingBudget: TimeInterval = 120
+    public static let streamingStall: TimeInterval = 30
+
+    /// What an ended stream means, before anything is reported.
+    ///
+    /// A cancelled run that produced no answer is a cancellation, never a
+    /// failure. This is the one rule the streaming path cannot get right by
+    /// accident, because a cancelled stream *ends* rather than throwing: without
+    /// asking, the run a person stopped looks exactly like a model that
+    /// returned nothing, and it gets reported as a fault they did not cause.
+    /// The real evaluation found it as case j13.
+    enum StreamEnding: Equatable {
+        /// Something came back.
+        case answered
+        /// The person stopped it. Their decision, reported as theirs.
+        case cancelled
+        /// It ended with nothing, and nobody stopped it. A real failure.
+        case producedNothing
+    }
+
+    static func ending(cancelled: Bool, producedAnswer: Bool) -> StreamEnding {
+        if cancelled { return .cancelled }
+        return producedAnswer ? .answered : .producedNothing
+    }
+
     public var capabilities: SuggestionCapabilities {
         SuggestionCapabilities(
             intents: [.explore, .add, .clarify],
@@ -81,13 +115,13 @@ public struct AppleLocalSuggestionService: StreamingSuggestionService {
             throw AppleModelError.unavailable(reason)
         }
 
-        let projection = Self.project(request: request, document: document, probe: probe)
-        let prompt = ApplePromptBuilder.build(request: request, document: document)
-        Self.report(projection)
+        let prepared = try Self.prepare(request: request, document: document, probe: probe)
         do {
             #if canImport(FoundationModels)
             if #available(macOS 26.0, *) {
-                let converted = try await generate(prompt: prompt, request: request, document: document)
+                let converted = try await generate(
+                    prompt: prepared.prompt, request: request, document: document, scope: prepared.scope
+                )
                 if converted.droppedIdeas > 0 || converted.droppedKinds > 0 {
                     // Counts only. The document's own words never reach a log.
                     NSLog("Kollio apple: dropped \(converted.droppedIdeas) unusable ideas and \(converted.droppedKinds) unknown kinds")
@@ -109,19 +143,58 @@ public struct AppleLocalSuggestionService: StreamingSuggestionService {
         }
     }
 
+    /// What will be sent, and what the answer may then claim to have read.
+    struct Preparation: Sendable {
+        let prompt: String
+        /// Nil when nothing was left out, so a complete answer records no scope and
+        /// a scope row that is always lit means nothing.
+        let scope: ProposalContextScope?
+    }
+
+    /// Projects, refuses or narrows, and builds the prompt from the result.
+    ///
+    /// This is the single place the three facts are tied together, and both the
+    /// plain and the streaming path go through it, so a truncation can never be
+    /// counted in one route and ignored in the other.
+    static func prepare(
+        request: ProposalRequest,
+        document: KollioDocument,
+        probe: any AppleModelProbing
+    ) throws -> Preparation {
+        let projection = project(request: request, document: document, probe: probe)
+        report(projection)
+        // A required object that does not fit is not a shorter answer, it is an
+        // answer about something else. Refused here rather than resolved, because
+        // the only thing the app can offer instead is a narrower question, and that
+        // is the person's call to make.
+        guard projection.missingRequired.isEmpty else {
+            throw AppleModelError.contextTooLarge
+        }
+        return Preparation(
+            prompt: ApplePromptBuilder.build(request: request, document: document, projection: projection),
+            scope: projection.isComplete ? nil : ProposalContextScope(projection)
+        )
+    }
+
     #if canImport(FoundationModels)
     @available(macOS 26.0, *)
     private func generate(
         prompt: String,
         request: ProposalRequest,
-        document: KollioDocument
+        document: KollioDocument,
+        scope: ProposalContextScope?
     ) async throws -> AppleCandidateConverter.Converted {
         // A fresh session per request. No transcript is carried between
         // documents, accounts or branches, and the document is the memory.
         let session = LanguageModelSession(instructions: ApplePromptBuilder.instructions)
         // No tools at all: no shell, no browser, no filesystem.
         let response = try await session.respond(to: prompt, generating: AppleCandidate.self)
-        return converter.convert(response.content, request: request, document: document)
+        return converter.convert(
+            response.content,
+            request: request,
+            document: document,
+            contextScope: scope
+        )
     }
     #endif
 
@@ -198,16 +271,15 @@ public struct AppleLocalSuggestionService: StreamingSuggestionService {
             throw AppleModelError.unavailable(reason)
         }
 
-        let projection = Self.project(request: request, document: document, probe: probe)
-        let prompt = ApplePromptBuilder.build(request: request, document: document)
-        Self.report(projection)
+        let prepared = try Self.prepare(request: request, document: document, probe: probe)
         do {
             #if canImport(FoundationModels)
             if #available(macOS 26.0, *) {
                 let converted = try await generateStreaming(
-                    prompt: prompt,
+                    prompt: prepared.prompt,
                     request: request,
                     document: document,
+                    scope: prepared.scope,
                     onProgress: onProgress
                 )
                 if converted.droppedIdeas > 0 || converted.droppedKinds > 0 {
@@ -222,6 +294,10 @@ public struct AppleLocalSuggestionService: StreamingSuggestionService {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
+            // A cancellation that arrives wrapped, rather than as the error the
+            // task throws, is still the person stopping the work. Flattening it
+            // into a failure is how a deliberate act gets reported as a fault.
+            if Task.isCancelled { throw CancellationError() }
             throw AppleModelError.generationFailed(String(describing: error))
         }
     }
@@ -232,6 +308,7 @@ public struct AppleLocalSuggestionService: StreamingSuggestionService {
         prompt: String,
         request: ProposalRequest,
         document: KollioDocument,
+        scope: ProposalContextScope?,
         onProgress: @Sendable (ProposalProgress) -> Void
     ) async throws -> AppleCandidateConverter.Converted {
         let session = LanguageModelSession(instructions: ApplePromptBuilder.instructions)
@@ -240,25 +317,57 @@ public struct AppleLocalSuggestionService: StreamingSuggestionService {
         // The stream has no final event: it simply stops, and the last snapshot is
         // the whole answer. So the last snapshot is kept and nothing is committed
         // until the loop has ended.
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(Self.streamingBudget)
+        var lastSnapshotAt = clock.now
         var lastRaw: GeneratedContent?
         for try await snapshot in stream {
             // Cancellation is the caller's decision, honoured between snapshots so
             // a person who changes their mind stops the work.
             if Task.isCancelled { throw CancellationError() }
+            let now = clock.now
+            // Two bounds, each naming what it means: past the budget the run
+            // cannot be trusted to end, and a long silence between snapshots
+            // is the hang arriving early. Both are reported as what they are,
+            // a generation that never produced an answer, never flattened into
+            // a retry or an empty branch.
+            guard now < deadline else {
+                throw AppleModelError.generationFailed("generation exceeded the streaming budget without producing an answer")
+            }
+            guard now - lastSnapshotAt < .seconds(Self.streamingStall) else {
+                throw AppleModelError.generationFailed("generation stalled: no new snapshot within the stall window")
+            }
+            lastSnapshotAt = now
             lastRaw = snapshot.rawContent
             if let progress = AppleCandidateProgress.project(snapshot.rawContent) {
                 onProgress(progress)
             }
         }
 
-        guard let lastRaw else {
-            // The stream ended without producing anything. That is a failure, not
-            // an empty proposal: saying nothing came back is the honest report.
+        // A cancelled stream *ends* rather than throwing, so the run a person
+        // stopped arrives here with nothing to show and looks exactly like a
+        // model that returned nothing. The rule is in one place, and the path
+        // below asks it rather than deciding again.
+        switch Self.ending(cancelled: Task.isCancelled, producedAnswer: lastRaw != nil) {
+        case .cancelled:
+            throw CancellationError()
+        case .producedNothing:
+            // Nothing came back, and nobody stopped it. A failure, not an empty
+            // proposal: saying so is the honest report.
             throw AppleModelError.generationFailed("no answer produced")
+        case .answered:
+            break
         }
+        // `.answered` means `lastRaw` was set; the guard only narrows the type.
+        guard let lastRaw else { throw AppleModelError.generationFailed("no answer produced") }
         do {
             let candidate = try AppleCandidate(lastRaw)
-            return converter.convert(candidate, request: request, document: document)
+            return converter.convert(
+                candidate,
+                request: request,
+                document: document,
+                contextScope: scope
+            )
         } catch {
             // The answer arrived but does not satisfy the shape. Reported as a
             // failure, never shown as an empty branch the user must dismiss.
@@ -317,9 +426,9 @@ public enum AppleModelError: Error, LocalizedError, Equatable {
         case .generationFailed:
             // Deliberately vague: the underlying description can contain
             // fragments of the document, so it is not surfaced.
-            return "The on-device model could not answer."
+            return L10n.appleGenerationFailed
         case .contextTooLarge:
-            return "This part of the document is too large for the on-device model. Try exploring something more specific."
+            return L10n.appleContextTooLarge
         }
     }
 }
@@ -377,10 +486,25 @@ enum ApplePromptBuilder {
         return min(max(2_000, share), tokens * conservativeCharactersPerToken)
     }
 
-    static func build(request: ProposalRequest, document: KollioDocument) -> String {
-        let context = request.context.map { item in
-            "- \(item.objectID.rawValue) [\(item.kind.rawValue)] \(item.text)"
-        }.joined(separator: "\n")
+    static func build(
+        request: ProposalRequest,
+        document: KollioDocument,
+        projection: ContextProjection
+    ) -> String {
+        // Built from what the projection kept, not from the request as it arrived.
+        // The first version logged a truncation and then sent the whole context
+        // anyway, so the count and the payload were two different answers to the
+        // same question and only one of them was true.
+        let read = Set(projection.included.compactMap { item -> ObjectID? in
+            if case .object(let id) = item { return id }
+            return nil
+        })
+        let context = request.context
+            .filter { read.contains($0.objectID) }
+            .map { item in
+                "- \(item.objectID.rawValue) [\(item.kind.rawValue)] \(item.text)"
+            }
+            .joined(separator: "\n")
         let instruction = request.instruction.map { "\n- instruction: \($0)" } ?? ""
         return """
         intent: \(request.intent.rawValue)

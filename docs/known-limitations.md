@@ -88,6 +88,68 @@ SDK 27.0.
 
 ## Implemented and tested
 
+- **A document can be renamed, duplicated and exported, and the export is one frozen
+  scope rendered three ways.** Markdown, PNG and the asset archive all read the same
+  `DocumentExportSnapshot`, so a person cannot preview one scope and receive another.
+  The PNG is a drawing of those blocks, not a screenshot of the window, which is why
+  it is checkable: a test asserts the raster is a real PNG and that every non-blank
+  line it draws is a line the Markdown export would have written. The `.kollio` export
+  is a portable document that reopens with no dangling internal reference, and it
+  deliberately carries no history rather than a partial audit trail whose entries
+  describe objects that were not exported. The asset archive copies the files the
+  exported scope actually cites and writes a manifest that says, per source, whether
+  it was copied, is a link with no bytes to copy, or has moved: a missing file is a
+  warning, never a silent omission. Renaming changes the versioned title and the
+  registry filename together, and the previous file is removed only after the renamed
+  document is safely written. Duplicating produces a new `documentId` with internal
+  references remapped, a new file, and an untouched original. Tested in the domain and
+  at the model. **What is not proved:** the three export commands were never driven by
+  a human through their system dialogs, and a frozen scope of a real long document has
+  not been read as a picture yet.
+
+- **The document can be read along a chosen path, and read only.** `ReadingPath`
+  is a value rather than document state: points keep their order, resolve against
+  the document as it is, and a point that no longer resolves is skipped and counted
+  rather than replaced by whatever now occupies its place. A source and a decision
+  are points, anchored where they can be read. Every write goes through one guarded
+  path that refuses while a tour runs, so set aside, reopen, create, update, keep,
+  a move and a raw decision are all refused and the document stays byte-identical;
+  the contextual action set is empty for the duration, so nothing is offered to
+  press either. The camera is restored exactly on exit, through Escape as well as
+  through the button, and Escape closes it through the same level stack as every
+  other card. `Cmd+Return` starts and leaves, the arrows move between points, and
+  the walk stops at both ends. No model is called, on any step. Tested in the domain
+  and at the interface, and seen in the running app.
+- **Search over titles, bodies and reasons, with what was not searched named.**
+  `DocumentSearch` is a pure function of the document. A result says whether it is
+  on the canvas, set aside, or history, and that state is a property of the match
+  and not only of the object, so a reason whose decision no longer stands is
+  offered as history rather than as the reason that applies today. Matching ignores
+  case and accents, a reason is searched in the language being read, an excerpt is
+  the words around the match, a title match outranks a reason outranks a body, and
+  the same query always gives the same list. Rights are applied before the search
+  and source content is not read to look for words, both named in `notSearched`.
+  Choosing a result reveals its branch in the view only: the document stays
+  byte-identical, the revision does not move, the direction stays set aside, and
+  reopening remains a separate action. Zero results keeps the query and offers to
+  clear it, Escape closes the card without touching the selection, and no model is
+  asked. Tested in the domain and at the interface, and seen in the running app in
+  French and English.
+- **The context budget is now the payload, not a count beside it.** The projection
+  that was measured is what the prompt is built from, so an item the log calls a
+  drop is not sent. A required item that does not fit refuses the request and asks
+  for a narrower question instead of answering about less and staying quiet, on the
+  streaming route as well as the plain one. A narrowed answer carries
+  `ProposalContextScope`: what was read, what was left out, and a count declared as
+  characters rather than tokens. "What was read" is filtered by that scope rather
+  than read off the request, and the scope is on the status line as well as in the
+  attribution panel. A complete answer records no scope, so the row is not always
+  lit. Tested in the domain, in the adapter and at the interface, and reached on a
+  real 8192-token window: the on-device run logged one optional item dropped, a
+  proposal arrived, and both the status line and the read list were narrowed.
+- **The on-device availability and failure messages are localized.** They were
+  English literals reaching the status line, so a French person read an English
+  refusal about their own question, under a comment that called them localized.
 - The entry point: a launch with no stored document shows the initial input, a stored document is
   restored, and an unreadable one is reported without being overwritten. Sarah is only ever reached
   through the explicit demo menu action. Tested.
@@ -153,16 +215,89 @@ SDK 27.0.
 
 ## Implemented, seen on screen, but not automated
 
-- Real pointer interaction: dragging, double-clicking to explore, pressing the contextual buttons. The
-  model behind each of these is covered by tests and the resulting states were captured as screenshots,
-  but the click coordinates themselves were not driven by an automated UI test, because this
-  environment does not grant UI scripting access. A human should still do a pass with a trackpad.
-- The entry point as a user reaches it: the invitation, the multiline field and the primary action were
-  seen in the launched app (`build/01-entry.png`). **Typing a sentence and pressing the action was not
-  done by a human or a script**: keystroke injection needs accessibility access, which this
-  environment refuses. The behaviour behind it is covered by tests against the real model, and the
-  transport it triggers is covered separately, but the two have not been joined by an actual person
-  typing.
+- **Nobody has walked a tour with a keyboard**, and the source step's reader has
+  not been seen on a screen. The whole path is covered by tests and the card was
+  captured in English, which is not the same as a person pressing the arrows.
+- **The search card's "not searched" line has never been seen.** It is implemented
+  and covered by tests, and it cannot appear in the two states that were captured:
+  Sarah holds no attached source, and a local search is unfiltered, so there is
+  nothing to hold back. Reaching it needs a document with evidence, or a
+  permission-limited search, and neither is reachable from the demo fixture.
+- **The scope of an answer has never been seen on a screen, and the reason is now
+  understood.** Reaching the state needs a document whose context crosses a real
+  8192-token window, so `KOLLIO_REVIEW=narrowed` and `KOLLIO_REVIEW=toobig` build
+  one, and two tests prove the arithmetic against that real window rather than
+  trusting it. The app reaches the state: the running app logged the truncation,
+  produced a proposal, and set the status line to "Answered from part of the
+  context: 1 item(s) did not fit." What could not be captured is a legible picture
+  of it, because a document that large is a single node thousands of points tall,
+  the canvas frames the whole content when it appears, and the status line and the
+  attribution panel are drawn inside the same stack as that node. The captures in
+  `build/kollio-narrowed.png` and `build/kollio-toobig.png` show the document those
+  states produce and **not** the notice, so they are evidence of nothing about it.
+  The scope row joins the list of things a person still has to look at.
+- **The real-model suite is not deterministic.** One run of
+  `RealOnDeviceModelTests.realStreaming` on 2026-09-27 failed after 313 s with the
+  framework's own refusal, "Streamed response may contain sensitive or unsafe
+  content". The same test passes on the clean tree and on the changed tree, and the
+  prompt it sends is byte-identical either way when nothing is dropped, so nothing
+  attributes the failure to a change. It is a local model refusing one run out of
+  several, and the honest reading is that this test can fail without a defect. The
+  313 s is also unexplained and is not the 8 to 12 s the passing runs take.
+- **The human pass is automated, and it is not the one the repository expected.**
+  `./scripts/ui-pass.sh` runs `KollioUITests`, which types a French sentence into the
+  entry point with a real keyboard, presses the action, reads the canvas back by
+  name, quits with no `Cmd+S` anywhere, and checks the document comes back. Two
+  tests, both green, run against the real application over the accessibility bridge.
+  The target is generated by `scripts/sync-xcodeproj.py` like every other target,
+  and the app names what a test looks for in `AXID`.
+
+  Three things about it are worth stating because two of them contradict what this
+  file used to say:
+
+  - **Accessibility is granted on this machine.** `AXIsProcessTrusted()` is true for
+    the process that runs the check, and the test runner needs no permission at all
+    — XCUITest does not post to the HID tap, it talks to the application over the
+    accessibility channel. The old claim that "keystroke injection needs
+    accessibility access, which this environment refuses" was half wrong and is gone.
+  - **The window opens on the second display, and every element in a snapshot is
+    reported `Disabled` because of it.** Clicks and keystrokes still arrive, which
+    is why the pass is green. A reader of a test log will otherwise think the
+    elements are untouchable.
+  - **It is not in `verify.sh`,** because it needs a window and `verify.sh` must
+    pass on a machine with no display.
+
+  The pass is not decoration: it found two product bugs on its first run that every
+  other suite in this repository had passed, and they are written up below.
+- **A document written by the app could not be read back, and had not been since
+  12:08 on 2026-09-27.** `DocumentFileStore.mostRecentDocumentURL` returned the
+  *default* file whenever it existed, whatever its age. An empty `Kollio.kollio`
+  was written by a launch that had nothing in it, and from then on every launch
+  preferred it over real documents written minutes later. Documents kept being
+  written, to their own names, and were never opened again. The name is not a claim
+  about which document is the work; the date is, and a same-second tie is broken on
+  the sortable stamp in the name rather than on directory order.
+- **Framing a small document magnified it to 300%.** `Camera.fitting` took the
+  largest zoom the numbers allowed, up to the maximum, so a document holding one
+  short object opened framed on that one object blown up to fill the screen. It
+  looked like a rendering fault — the text was also soft-edged — and it was the
+  same fault: the same capture at its own size is crisp, so the blur came from the
+  scale factor and not from the screenshot. Framing now shrinks and centres and
+  stops at the content's own size; `Cmd+1` remains the way to move closer. No test
+  stated the rule before, because every test framed content larger than the window,
+  where the question never arises.
+- **A quit with nothing in the document wrote an empty file.** That is the file that
+  did the shadowing, so the two were one bug seen from two sides. Nothing is written
+  for an empty document now: there is nothing in it to keep.
+- Both were found by the automated pass and by hand, and neither was found by 697
+  tests. Every one of those tests used a temporary directory, so no test ever had a
+  stale file to trip over, and one of them asserted "a stored document is restored"
+  against a directory it controlled. `DocumentRestoreTests` now covers both halves
+  against a directory that is really used and really left behind.
+- Pointer interaction beyond the entry point — dragging, double-clicking to explore,
+  pressing the contextual buttons — is still not driven by a UI test. The model behind
+  each gesture is covered and the states were captured as screenshots, but a person
+  with a trackpad has still never done the pass.
 - A full run with a ghost branch proposed by the **real on-device model** has not been captured. The
   generation, the conversion and the validation are each verified; the assembled screenshot is not.
 - `scripts/run-app.sh --shot` captures the **whole screen**, not Kollio, and focusing Kollio first is
@@ -311,12 +446,149 @@ Everything in the non-goals, and also, honestly:
 - **The context budget is counted in characters, not tokens.** The app cannot know the
   model's tokenizer, so the conversion is a documented estimate, clamped so the budget can
   never exceed the model's real window. It is honest about being an estimate, and a
-  truncation is reported, but it is not a token count.
-- **The specification is written down; most of it is not built.** 71 features and 213 acceptance
-  criteria exist in [specs/SPECIFICATIONS.md](specs/SPECIFICATIONS.md). 15 are `automatedVerified`,
-  1 is `humanVerified`, 55 are `specified`, which means written down and nothing more. Read
+  truncation is reported, but it is not a token count. The scope record carries the same
+  unit honestly: `ProposalContextScope.countsTokens` is `false`, so a number in the
+  attribution panel cannot be read as a token count by mistake. What is real is the
+  measured size of the payload that was actually built.
+- **The specification is written down; most of it is not built.** 72 features and 217 acceptance
+  criteria exist in [specs/SPECIFICATIONS.md](specs/SPECIFICATIONS.md). 34 are `automatedVerified`,
+  1 is `humanVerified`, 36 are `specified`, which means written down and nothing more. Read
   [../openspec/specs/evidence.md](../openspec/specs/evidence.md) for the proved, the owed and the
   wrong.
+- **The local action bar spoke key names, not French.** `ContextualActionSet.Kind.localizationKey`
+  returned `explore`, `clarify` and `setAside`; the String Catalog holds `canvas.explore`,
+  `canvas.clarify`, `canvas.setAside`. `String(localized:)` does not report a missing key, it
+  returns the key, so the primary local controls of a French window read `explore`, `clarify`,
+  `setAside` and `Plus`. Four more keys were absent from the catalog entirely. All are fixed and
+  `ContextualActionLabelTests` now walks every kind, because the failure is silent and the
+  mistake is cheap to repeat. The label this exposed is worth keeping: `.add` was pointing at
+  `clarify`, so the button said "Clarify" over an action that adds.
+- **The local action bar had no accessibility identifier.** `AXID.contextualActions` existed and
+  nothing used it, so the cluster was absent from the accessibility tree: a VoiceOver user could
+  reach the three actions but nothing announced the group, and a UI test could not find the bar
+  at all. It is named now, as a container.
+- **Dark mode has never been looked at.** The contrast work is proved by measurement
+  (`OnAccentContrastTests`: white on the dark accent is 2.15:1, the dark ink is 8.12:1), and the
+  fix is on the code path that renders it, but no dark rendering has been captured on this
+  machine. `-AppleInterfaceStyle Dark` is ignored by this app, and setting the global appearance
+  did not reach a SwiftUI window launched under XCUITest. It is the largest unverified claim in
+  the visual layer.
+- **The local controls now decide their own material, and that decision is the point.**
+  Under reduced transparency the instruments stop being glass and become a surface with a
+  border. That was a gap, not a feature: the previous version asked the system material to
+  stay findable, which is a hope rather than a decision, and a control that depends on what
+  is behind it in order to be seen is not a control. `InstrumentMaterial.resolve` is a pure
+  function and `InstrumentMaterialTests` decides the matrix, so the fallback cannot be
+  quietly removed. The opaque surface is the only hand-drawn material in the application.
+- **The typographic hierarchy was carried by size alone.** Six roles, one family, and four of
+  them set at medium, which quietly redefined medium as "ordinary" and left the reading text at
+  the same weight as the controls around it. The document's rule is three weights with one job
+  each — regular reads, medium distinguishes, semibold is exceptional — and it was not being
+  followed. The scale is now a table of role to size and weight, so a size cannot drift away
+  from its weight, and the invitation and the thought went back to regular because both are read.
+  The one exception, the mark that says the ground moved, is now the only semibold in the
+  application, and `TypeScaleTests` fails if a second thing takes it.
+- **Two document forms looked like the same card.** A reference and a rich result were both
+  white rounded rectangles, separated by four points of radius and by the fact that one had a
+  shadow. On a canvas with ten objects that is not a usable distinction, so what a thing *was*
+  was carried by a small icon while its shape carried nothing — and the shadow made a document
+  object look like a card lying on top of the work. Silhouettes are now a table,
+  `NodeAppearanceTable`: a thought has no surface and keeps it, a source is a hairline and no
+  elevation, a rich result is a hairline plus a rule down the leading edge, so it reads as a
+  section of the document. The rule is one thin rectangle, not a second colour and not a new
+  radius token. `NodeAppearanceTests` says no document object is lifted, which a screenshot
+  cannot say.
+- **The result's surface has been seen by no one.** Recording a result, proposing a learning
+  and reading the outcome are all implemented and held by named tests (`ExperimentResultTests`,
+  `ResultInterfaceTests`), but no person has recorded one yet, and the acceptance flow that
+  follows — taking the decision the learning points at — runs through DEC-01's own composer,
+  untested as a combined loop.
+- **The history timeline previews, restores and purges, but the preview is not a diff.**
+  `reviewHistory` shows what happened to an object, newest first, with the labels the person
+  acted under, and closing it changes nothing. Each row now offers a read-only preview of the
+  document at that action and a restore; the card offers a purge against a retention horizon.
+  `HistoryRestoreTests` (6) covers the three acts, including the two that were wrong before
+  the tests existed: a replay no longer applies a reversal (which carries the payload of what
+  it undid, and would have resurrected it), and a restore no longer empties the journal (it
+  would have deleted the very timeline the person was reading).
+  What is still missing: the purge horizon is a fixed thirty days rather than a choice, and
+  neither the timeline nor the preview sheet has been seen at all. The canvas around them has
+  been observed running — the entry screen, the demo document, its relationships, the status
+  line — and reads correctly, in the interface's language. Everything behind a contextual set
+  has not: opening the timeline, reading a preview and confirming a purge were not reached,
+  because reaching them needs UI driving and this session is under a standing instruction not
+  to build capture tooling. A green suite and an unlooked-at card are different things, and only
+  one of them is evidence.
+  The differences themselves are built and tested: the preview shows what changed about this
+  object, not the past document in full, because that was the question the timeline was asking.
+  A replay starts from the document as this session opened it, held on the session rather than
+  in the document: the journal records what happened since, so replaying from an empty
+  document would rebuild only the edits and lose the content they were applied to. A file
+  written last week and reopened today therefore replays from its own content — but only
+  across one session, because that base is not written to the file.
+- **DEC-04's experiments exist in the document and nowhere else.** The domain holds a
+  validation experiment as a ledger: question, method, success criterion, the evidence it will
+  be judged against, owner, due date, the simulation flag, and an append-only revision list so
+  the criterion a person committed to stays readable after an edit. `ExperimentTests` (15)
+  proves the ACs that are earnable now: criteria kept across edits, evidence links validated
+  against the document (a link to a thing that does not exist is refused, a duplicated link
+  too), undo, save and reload, and intelligence being refused the right to build one. What does
+  not exist yet: any way to build one from the interface, any surface that shows one, and
+  DEC-05's result, without which DEC-04 AC03 ("editing *after a result*") is not fully earned.
+  The status file says `inProgress` for exactly that reason. The interface half exists:
+  `buildExperiment` in the contextual menu, `ExperimentComposerView` with the required fields
+  required, evidence prefilled from the selection, undo and refusal with a reason, and
+  `reviewExperiment` opening `ExperimentCardView` — question, method, committed criterion,
+  evidence by authored name, the simulation flag, and the revision count when there is more
+  than one. Escape closes it one level at a time and reading writes nothing. What has never
+  happened: a person building one, reading it, and trusting the reading — no human eye yet.
+- **A zoomed-out canvas gave no sense of where you are.** Panning or zooming moved the world
+  over a flat colour: nothing on the paper told a person where they were, so a return to a
+  document meant re-finding it by eye. The ground is now a dot grid that scales with the world —
+  a minor step of 24 points, and when the minor step would draw as screen grain the major
+  stride (5 steps, drawn as emphasis) takes over. `CanvasGround.scale` is the decision, tested;
+  `CanvasGroundLayer` is the drawing. Points, not lines — lines cut space into corridors. The
+  grid never takes a hit, dies completely under reduce transparency, and is silent at zooms
+  where even the stride would be grain. What a capture cannot prove: whether the dots read as
+  ground or as dirt at any real zoom, which is for eyes.
+- **A relationship's kind is only readable at one point, and only from words.** The nine kinds
+  of relation rendered identically, so whether a thing *supports* or *contradicts* had to be
+  read from a twelve-point label at every connector. A support now carries a single bar across
+  the stroke, a contradiction two — the pair being the meaning, rather than a second shape to
+  learn. Most kinds wear nothing, which is the point: `RelationshipAppearance.treatment` is the
+  table, and adding a marker for a kind that is not an assertion is what turns this into UML.
+  The marker is drawn on the stroke and the label keeps its own font, because meaning is never
+  expressed by making meaning harder to read.
+- **The elevation scale in the design system is not used by anything.** `Elevation` is declared
+  and read nowhere, while twelve views hand-write their own shadow. The world layer now carries
+  none at all, so the remaining shadows are all on transient surfaces — but they are still
+  invented numbers, and collapsing them onto the system material needs a pass that can see the
+  screen. Left alone on purpose rather than swept blind.
+- **Nothing here has been seen by a person.** Every change in this pass was verified by a test or
+  by a capture the machine took of itself. Whether the local bar is pleasant to reach with a slow
+  pointer, whether the glass reads as an instrument rather than as a row of pills, and whether the
+  type is right are all still owed to somebody's eyes.
+- **The canvas is measured, and one measurement is not a frame.** A 100-object, 180-relationship
+  document on a 10x10 grid went from 149 ms to 5.6 ms per render pass, and a click went from
+  133 ms to 2.9 ms. The 149 ms was a router testing every obstacle against every curve, 49
+  samples at a time; a corridor around each chord rejects the obstacles that cannot matter for
+  four comparisons, and a curve is sampled once instead of once per obstacle.
+  `CanvasScaleTests` holds the pass against a ceiling, and holds the shape by *counting samples
+  instead of timing them*: a connector samples the obstacles in its corridor and only those, so
+  growing the document fourfold does not grow what it samples. Measured 1.00x.
+  An earlier version of that test asserted a ratio of two timed passes and failed about one run in
+  three, because a busy machine preempts the shorter pass proportionally harder than the longer
+  one. The machine had to come out of the measurement, not be tolerated in it — the counting test
+  runs in 0.17 s against the timing one's 1.1 s, and passes on a loaded machine.
+  What is not measured: SwiftUI's own draw time, which needs Instruments on the running app, and
+  every number here is from a `swift test` process, not from a person dragging.
+- **The deployment floor is macOS 26, decided rather than derived.** It was 14, written in four
+  places at once, and one of them was `services/KollioServer`, which is not in the Xcode project
+  but is in the package graph, so raising the app alone failed with an error naming the wrong
+  package. The floor is now 26.0, written once in `sync-xcodeproj.py` and once in each of the
+  three manifests, all of which are `swift-tools-version: 6.4` because `.v26` does not exist
+  below it. This is what makes `.glass` and `.glassProminent` usable without a fallback, and it
+  is a choice about who cannot install Kollio, not a technical necessity.
 - **No web renderer, no public SDK, no standard.** Intentional.
 - **No accounts, no payments, no marketplace, no collaboration.** Intentional.
 

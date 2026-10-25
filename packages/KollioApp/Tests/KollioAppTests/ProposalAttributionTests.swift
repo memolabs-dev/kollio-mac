@@ -133,6 +133,26 @@ struct ProposalAttributionTests {
         #expect(gone.label.isEmpty == false)
     }
 
+    @Test("A narrowed answer states what it read and what it left out")
+    func narrowedScopeIsReadable() throws {
+        let proposal = Proposal(
+            proposalId: "p-scope", requestId: "r-scope", documentId: "d",
+            baseSemanticRevision: 0,
+            summary: LocalizedText("One direction"),
+            generator: .init(name: "apple-on-device", deterministic: false),
+            contextScope: ProposalContextScope(
+                readObjectIDs: ["object:a", "object:b"],
+                omittedObjectIDs: ["object:c"],
+                measuredCharacters: 420,
+                budgetCharacters: 500
+            )
+        )
+
+        let text = try #require(ProposalAttributionView.scopeSummary(for: proposal))
+        #expect(text.contains("2"))
+        #expect(text.contains("1"))
+    }
+
     // MARK: - Attribution reaches the real Apple path
 
     @Test("The Apple adapter names the local destination and its prompt revision")

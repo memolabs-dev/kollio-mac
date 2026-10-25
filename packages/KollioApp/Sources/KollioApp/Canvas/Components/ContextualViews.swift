@@ -10,14 +10,53 @@ struct ContextualActions: View {
 
     @Environment(\.kollioTheme) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The cluster's real size, published by the layout below.
+    ///
+    /// The placement used to assume 300 by 52 and clamp, which is a guess that
+    /// cannot notice being wrong: it put the bar off the window as soon as a
+    /// label was long enough, and a French « Comparer les directions » is longer
+    /// than the space the guess allowed for.
+    @State private var measured: CGSize = .zero
 
     var body: some View {
-        if let anchor = anchorPoint() {
+        // A reading mode offers no editing command at all, not a set of buttons
+        // that would refuse when pressed. The refusal is proved at the command
+        // layer, but a person who is invited to press something during a tour is
+        // being invited to find out, and a reading mode that also edits is not one.
+        // CAN-10 keeps exit, source and navigation; none of them live here.
+        if model.isPresenting {
+            EmptyView()
+        } else if let object = model.frame(of: target) {
+            let placement = ContextualPlacement.resolve(
+                object: screenFrame(of: object),
+                size: measured,
+                viewport: CGSize(width: model.viewport.width, height: model.viewport.height)
+            )
+            instrumentCluster
+                .background(measure)
+                .position(placement.point)
+                .transition(.opacity.combined(with: .offset(y: reduceMotion ? 0 : -4)))
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(AXID.contextualActions)
+        }
+    }
+
+    /// The buttons, and nothing else.
+    ///
+    /// There was a hand-drawn plate here: a white rounded rectangle with a large
+    /// shadow, holding buttons that each drew their own fill. That is glass on
+    /// glass, or rather neither: a plate pretending to be a material, wrapped
+    /// around controls pretending to be buttons. The cluster is now the material,
+    /// which is what the system already knows how to draw and how to press.
+    private var instrumentCluster: some View {
+        InstrumentGroup {
             VStack(alignment: .leading, spacing: Space.s) {
                 HStack(spacing: Space.xs) {
                     ForEach(actionSet.primary, id: \.self) { kind in
-                        ActionButton(title: L10n.callAsFunction(kind.localizationKey),
-                                     isDefault: kind == actionSet.isDefault) {
+                        InstrumentButton(
+                            L10n.callAsFunction(kind.localizationKey),
+                            emphasis: kind == actionSet.isDefault ? .prominent : .normal
+                        ) {
                             perform(kind)
                         }
                         .help(L10n.callAsFunction(kind.localizationKey))
@@ -35,9 +74,7 @@ struct ContextualActions: View {
                         } label: {
                             Text(L10n.moreActions)
                                 .font(TypeScale.action)
-                                .foregroundStyle(theme.textPrimary)
-                                .padding(.horizontal, Space.m)
-                                .padding(.vertical, 6)
+                                .fixedSize()
                         }
                         .menuStyle(.borderlessButton)
                         .menuIndicator(.visible)
@@ -46,26 +83,48 @@ struct ContextualActions: View {
                     }
                 }
                 if !setAsideReason.isEmpty {
+                    // Paper, not glass, and deliberately: this is a sentence a
+                    // person reads, and glass is for what a person presses. A
+                    // reason that fades into whatever is behind it is a reason
+                    // that cannot be re-read.
                     Text(setAsideReason)
                         .font(TypeScale.metadata)
                         .foregroundStyle(theme.textSecondary)
+                        .padding(.horizontal, Space.s)
+                        .padding(.vertical, Space.xs)
                         .frame(maxWidth: 320, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
+                        .background(
+                            RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+                                .fill(theme.surfacePrimary)
+                        )
                 }
             }
-            .padding(Space.s)
-            .background(
-                RoundedRectangle(cornerRadius: Radius.richBlock, style: .continuous)
-                    .fill(theme.surfacePrimary)
-                    .shadow(color: .black.opacity(theme.isDark ? 0.38 : 0.13), radius: 14, y: 6)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: Radius.richBlock, style: .continuous)
-                    .strokeBorder(theme.decorativeBorder, lineWidth: 1)
-            )
-            .position(anchor)
-            .transition(.opacity.combined(with: .offset(y: reduceMotion ? 0 : -4)))
         }
+    }
+
+    /// Publishes the rendered size of the cluster, in the coordinate space the
+    /// placement works in.
+    private var measure: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(key: ContextualSizeKey.self, value: proxy.size)
+        }
+        .onPreferenceChange(ContextualSizeKey.self) { size in
+            // A zero is the measurement arriving before the layout, not a real
+            // size. Keeping the last real one avoids a bar that jumps.
+            if size.width > 0, size.height > 0 { measured = size }
+        }
+    }
+
+    private func screenFrame(of frame: Rect) -> CGRect {
+        let topLeft = model.camera.toScreen(Position(x: frame.minX, y: frame.minY))
+        let bottomRight = model.camera.toScreen(Position(x: frame.maxX, y: frame.maxY))
+        return CGRect(
+            x: topLeft.x,
+            y: topLeft.y,
+            width: bottomRight.x - topLeft.x,
+            height: bottomRight.y - topLeft.y
+        )
     }
 
     // MARK: Actions
@@ -115,6 +174,12 @@ struct ContextualActions: View {
             // A synthesis is a deliverable, so it opens as a draft the person has
             // to confirm. Composing is not handing over.
             _ = model.startSummary()
+        case .buildExperiment:
+            model.startExperiment(anchor: target)
+        case .reviewExperiment:
+            model.openExperiment(on: target)
+        case .reviewHistory:
+            model.openHistory(of: target)
         case .groupInFrame:
             // The frame is created around the selection and named immediately: a
             // frame is named by the person who makes it, not by the app.
@@ -157,17 +222,17 @@ struct ContextualActions: View {
         model.setAsideReason(of: target) ?? ""
     }
 
-    /// Screen position: just under the object, clamped inside the window.
-    private func anchorPoint() -> CGPoint? {
-        guard let frame = model.frame(of: target) else { return nil }
-        let bottomCenter = model.camera.toScreen(Position(x: frame.center.x, y: frame.maxY + 18))
-        let width: Double = 300
-        let height: Double = setAsideReason.isEmpty ? 52 : 92
-        return CGPoint(
-            x: min(max(bottomCenter.x, width / 2 + 16), max(model.viewport.width - width / 2 - 16, width / 2)),
-            y: min(bottomCenter.y + height / 2, max(model.viewport.height - height / 2 - 16, height / 2))
-        )
+/// The size the local action cluster rendered at.
+///
+/// A preference rather than an assumed width, because an assumed width is a
+/// number nobody revisits and a French label is wider than an English one.
+private struct ContextualSizeKey: PreferenceKey {
+    nonisolated(unsafe) static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        let next = nextValue()
+        if next.width > 0, next.height > 0 { value = next }
     }
+}
 }
 
 /// The inline composer that opens beside the object being worked on. There is no
@@ -265,6 +330,10 @@ struct FirstExperienceView: View {
             }
 
             TextEditor(text: $text)
+                // Named so a UI test can find the field by what it is rather than
+                // by where it happened to be. The identifier is the only thing in
+                // this view that exists for a test, and it is one string.
+                .accessibilityIdentifier(AXID.entryField)
                 .font(TypeScale.primaryThought)
                 .foregroundStyle(theme.textPrimary)
                 .scrollContentBackground(.hidden)
@@ -292,6 +361,7 @@ struct FirstExperienceView: View {
                     .font(TypeScale.metadata)
                     .foregroundStyle(theme.textSecondary)
                 ActionButton(title: L10n.explore, isDefault: true) { submit() }
+                    .accessibilityIdentifier(AXID.entrySubmit)
                     .disabled(isSubmitting)
             }
             // Cmd+Enter submits from anywhere in the field. `Enter` is left alone
@@ -709,6 +779,93 @@ struct ClaimComposerView: View {
         switch role {
         case .hypothesis: return L10n.claimStateHypothesis
         case .constraint: return L10n.claimStateConstraint
+        }
+    }
+}
+
+/// Building a validation experiment: what is being asked, and what would count.
+///
+/// The two required fields are required here as they are in the command layer,
+/// and for the same reason: an experiment with no criterion cannot lose. The
+/// submit button does not grey out while the fields are empty — the refusal
+/// says what is missing, which a greyed button never does.
+struct ExperimentComposerView: View {
+    let model: KollioModel
+
+    @Environment(\.kollioTheme) private var theme
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        if let draft = model.experimentDraft {
+            VStack(alignment: .leading, spacing: Space.s) {
+                Text(L10n.experimentComposerPrompt)
+                    .font(TypeScale.metadata.weight(.semibold))
+                    .foregroundStyle(theme.textSecondary)
+
+                TextField(
+                    L10n.experimentQuestionPlaceholder,
+                    text: Binding(
+                        get: { model.experimentDraft?.question ?? "" },
+                        set: { model.experimentDraft?.question = $0 }
+                    )
+                )
+                .font(TypeScale.body)
+                .focused($focused)
+
+                TextField(
+                    L10n.experimentCriterionPlaceholder,
+                    text: Binding(
+                        get: { model.experimentDraft?.criterion ?? "" },
+                        set: { model.experimentDraft?.criterion = $0 }
+                    )
+                )
+                .font(TypeScale.body)
+
+                TextField(
+                    L10n.experimentMethodPlaceholder,
+                    text: Binding(
+                        get: { model.experimentDraft?.method ?? "" },
+                        set: { model.experimentDraft?.method = $0 }
+                    )
+                )
+                .font(TypeScale.body)
+
+                if draft.expectedEvidence.isEmpty == false {
+                    Text(L10n.experimentEvidenceHint)
+                        .font(TypeScale.metadata)
+                        .foregroundStyle(theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Toggle(isOn: Binding(
+                    get: { model.experimentDraft?.isSimulation ?? false },
+                    set: { model.experimentDraft?.isSimulation = $0 }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L10n.experimentIsSimulation)
+                            .font(TypeScale.metadata)
+                        Text(L10n.experimentSimulationHint)
+                            .font(TypeScale.metadata)
+                            .foregroundStyle(theme.textSecondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
+
+                HStack {
+                    Spacer(minLength: 0)
+                    ActionButton(title: L10n.experimentBuild, isDefault: true) {
+                        model.submitExperiment()
+                    }
+                }
+            }
+            .padding(Space.m)
+            .frame(width: 340, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.richBlock, style: .continuous)
+                    .fill(theme.surfacePrimary)
+                    .shadow(color: .black.opacity(theme.isDark ? 0.38 : 0.13), radius: 14, y: 6)
+            )
         }
     }
 }

@@ -109,7 +109,8 @@ public struct AppleCandidateConverter: Sendable {
     public func convert(
         _ candidate: AppleCandidate,
         request: ProposalRequest,
-        document: KollioDocument
+        document: KollioDocument,
+        contextScope: ProposalContextScope? = nil
     ) -> Converted {
         var droppedIdeas = 0
         var droppedKinds = 0
@@ -191,7 +192,8 @@ public struct AppleCandidateConverter: Sendable {
                 rationale: candidate.rationale.isEmpty ? nil : LocalizedText(candidate.rationale),
                 operations: operations,
                 placementHints: created.map { .init(objectID: $0) },
-                generator: .init(name: "apple-on-device", deterministic: false)
+                generator: .init(name: "apple-on-device", deterministic: false),
+                contextScope: contextScope
             )
             return Converted(result: .proposal(proposal), droppedIdeas: droppedIdeas, droppedKinds: droppedKinds)
         default:

@@ -1,6 +1,7 @@
 import Foundation
 
 public enum DocumentError: Error, Equatable, CustomStringConvertible {
+    case emptyDocumentTitle
     case unknownObject(ObjectID)
     case unknownRelationship(RelationshipID)
     case unknownInstance(InstanceID)
@@ -56,6 +57,34 @@ public enum DocumentError: Error, Equatable, CustomStringConvertible {
     /// A comparison over fewer than two directions, which compares nothing.
     case comparisonNeedsTwoDirections(ComparisonID)
     case decisionTargetNotFound(ObjectID)
+    // An experiment, its fields and its evidence links. Each refusal below is
+    // one of the ways an experiment could have been built to lie: a question
+    // nobody asked, a criterion that judges nothing, a link to a thing that is
+    // not there.
+    case unknownExperiment(ExperimentID)
+    case duplicateExperiment(ExperimentID)
+    case emptyExperimentQuestion(ExperimentID)
+    case emptyExperimentCriterion(ExperimentID)
+    /// The same evidence linked twice, which would make the block count one
+    /// thing twice when a result is judged.
+    case duplicateEvidenceLink(ExperimentID, ObjectID)
+    // A result and a learning. Each refusal below is one of the ways a result
+    // could have lied: an observation with nothing observed, a shrug of an
+    // inconclusive answer, a number with no unit, a learning proposed about
+    // nothing, and an acceptance pointing at a decision that is not there or
+    // is not about the learning's scope.
+    case emptyObservation(ExperimentID)
+    case inconclusiveWithoutReason(ExperimentID)
+    case measurementWithoutUnit(ExperimentID)
+    /// The result names where the numbers came from, and the document does not
+    /// hold it. Kept apart from the source ledger's own error because the two
+    /// recover differently.
+    case experimentSourceNotFound(ExperimentID, ObjectID)
+    case emptyLearningStatement(FindingID)
+    case learningWithoutScope(FindingID)
+    case unknownFinding(FindingID)
+    case learningAlreadyAccepted(FindingID)
+    case decisionOutsideLearningScope(FindingID, DecisionID)
     case staleProposal(reason: String)
     /// Someone else changed this object's text after the writer last looked.
     /// Named apart from a stale proposal because the recovery is different: a
@@ -99,6 +128,7 @@ public enum DocumentError: Error, Equatable, CustomStringConvertible {
 
     public var description: String {
         switch self {
+        case .emptyDocumentTitle: return "Document title cannot be empty"
         case .unknownObject(let id): return "Unknown object \(id)"
         case .unknownRelationship(let id): return "Unknown relationship \(id)"
         case .unknownInstance(let id): return "Unknown instance \(id)"
@@ -163,6 +193,23 @@ public enum DocumentError: Error, Equatable, CustomStringConvertible {
         case .duplicateClarification(let id): return "Duplicate clarification \(id)"
         case .emptyClarification(let id): return "Clarification \(id) has no question"
         case .alreadyAnswered(let id): return "Clarification \(id) already has an answer"
+        case .unknownExperiment(let id): return "Unknown experiment \(id)"
+        case .duplicateExperiment(let id): return "Duplicate experiment \(id)"
+        case .emptyExperimentQuestion(let id): return "Experiment \(id) has no question"
+        case .emptyExperimentCriterion(let id): return "Experiment \(id) has no success criterion"
+        case .duplicateEvidenceLink(let experiment, let object):
+            return "Experiment \(experiment) links evidence \(object) twice"
+        case .emptyObservation(let id): return "Experiment \(id) has no observation"
+        case .inconclusiveWithoutReason(let id): return "Experiment \(id) is inconclusive without saying what is missing"
+        case .measurementWithoutUnit(let id): return "Experiment \(id) has a measurement with no unit"
+        case .experimentSourceNotFound(let experiment, let object):
+            return "Experiment \(experiment) names source \(object), which the document does not hold"
+        case .emptyLearningStatement(let id): return "Learning \(id) says nothing"
+        case .learningWithoutScope(let id): return "Learning \(id) applies to nothing"
+        case .unknownFinding(let id): return "Unknown learning \(id)"
+        case .learningAlreadyAccepted(let id): return "Learning \(id) was already accepted"
+        case .decisionOutsideLearningScope(let learning, let decision):
+            return "Decision \(decision) is not about anything learning \(learning) covers"
         case .unknownClarification(let id): return "Unknown clarification \(id)"
         case .relationshipEditPreconditionFailed(let id, let reason): return "Cannot edit \(id): \(reason)"
         }
@@ -217,6 +264,10 @@ public struct DocumentStore: Sendable {
 
     private static func applyCommand(_ command: Command, to document: inout KollioDocument, at date: Date) throws {
         switch command {
+        case .renameDocument(let rename):
+            let title = rename.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard title.isEmpty == false else { throw DocumentError.emptyDocumentTitle }
+            document.title = title
         case .createObject(let create):
             try createObject(create, in: &document)
         case .updateObjectText(let update):
@@ -310,6 +361,218 @@ public struct DocumentStore: Sendable {
             try confirmSummary(confirm, in: &document)
         case .removeSummary(let remove):
             try removeSummary(remove, from: &document)
+        case .createExperiment(let create):
+            try createExperiment(create, in: &document, at: date)
+        case .editExperiment(let edit):
+            try editExperiment(edit, in: &document, at: date)
+        case .recordExperimentResult(let record):
+            try recordExperimentResult(record, in: &document, at: date)
+        case .proposeLearning(let propose):
+            try proposeLearning(propose, in: &document, at: date)
+        case .acceptLearning(let accept):
+            try acceptLearning(accept, in: &document, at: date)
+        case .restoreDocument(let restore):
+            try restoreDocument(restore, in: &document)
+        }
+    }
+
+    /// Replaces every authored and presented part of the document while keeping
+    /// the identity, revision clock and append-only journal of the live file.
+    /// Decoding happens before the inout document is changed, so malformed or
+    /// foreign snapshots leave the transaction untouched.
+    private static func restoreDocument(_ command: RestoreDocument, in document: inout KollioDocument) throws {
+        let restored: KollioDocument
+        do {
+            restored = try DocumentCodec.decode(command.snapshot)
+        } catch {
+            throw DocumentError.forbiddenOperation("restore snapshot is unreadable")
+        }
+        guard restored.documentId == document.documentId else {
+            throw DocumentError.forbiddenOperation("restore snapshot belongs to another document")
+        }
+
+        document.content = restored.content
+        document.relationships = restored.relationships
+        document.decisions = restored.decisions
+        document.contributions = restored.contributions
+        document.products = restored.products
+        document.presentation = restored.presentation
+        document.sources = restored.sources
+        document.claims = restored.claims
+        document.clarifications = restored.clarifications
+        document.comparisons = restored.comparisons
+        document.summaries = restored.summaries
+        document.experiments = restored.experiments
+    }
+
+    private static func createExperiment(_ command: CreateExperiment, in document: inout KollioDocument, at date: Date) throws {
+        // Attached to the reasoning means attached to a thing that exists.
+        guard document.content[command.targetObjectID] != nil else {
+            throw DocumentError.decisionTargetNotFound(command.targetObjectID)
+        }
+        // Whitespace-only is empty in meaning, and the document does not store
+        // meaning that is not there.
+        guard command.question.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw DocumentError.emptyExperimentQuestion(command.id)
+        }
+        guard command.successCriterion.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw DocumentError.emptyExperimentCriterion(command.id)
+        }
+        try validateEvidenceLinks(command.expectedEvidence, of: command.id, in: document)
+        guard document.experiments.experiment(command.id) == nil else {
+            throw DocumentError.duplicateExperiment(command.id)
+        }
+        let experiment = Experiment(
+            id: command.id,
+            targetObjectID: command.targetObjectID,
+            question: command.question,
+            method: command.method,
+            successCriterion: command.successCriterion,
+            expectedEvidence: command.expectedEvidence,
+            owner: command.owner,
+            dueDate: command.dueDate,
+            isSimulation: command.isSimulation,
+            createdAt: date,
+            provenance: command.provenance
+        )
+        document.experiments.experiments[experiment.id] = experiment
+    }
+
+    private static func editExperiment(_ command: EditExperiment, in document: inout KollioDocument, at date: Date) throws {
+        guard var experiment = document.experiments.experiment(command.id) else {
+            throw DocumentError.unknownExperiment(command.id)
+        }
+        guard command.question.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw DocumentError.emptyExperimentQuestion(command.id)
+        }
+        guard command.successCriterion.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw DocumentError.emptyExperimentCriterion(command.id)
+        }
+        try validateEvidenceLinks(command.expectedEvidence, of: command.id, in: document)
+
+        experiment.revisions.append(ExperimentRevision(
+            question: command.question,
+            method: command.method,
+            successCriterion: command.successCriterion,
+            expectedEvidence: command.expectedEvidence,
+            provenance: command.provenance,
+            recordedAt: date
+        ))
+        // The live fields follow the newest revision, so a reader of the block
+        // and a reader of the revision list can never disagree.
+        experiment.question = command.question
+        experiment.method = command.method
+        experiment.successCriterion = command.successCriterion
+        experiment.expectedEvidence = command.expectedEvidence
+        document.experiments.experiments[command.id] = experiment
+    }
+
+    private static func recordExperimentResult(_ command: RecordExperimentResult, in document: inout KollioDocument, at date: Date) throws {
+        guard var experiment = document.experiments.experiment(command.id) else {
+            throw DocumentError.unknownExperiment(command.id)
+        }
+        // AC01 lives at this guard: the observation is what the person wrote
+        // after running something, and a whitespace field has nothing in it.
+        guard command.observation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw DocumentError.emptyObservation(command.id)
+        }
+        for measurement in command.measurements {
+            guard measurement.unit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                throw DocumentError.measurementWithoutUnit(command.id)
+            }
+        }
+        if let source = command.sourceObjectID {
+            guard document.content[source] != nil else {
+                throw DocumentError.experimentSourceNotFound(command.id, source)
+            }
+        }
+        switch command.outcome {
+        case .inconclusive(let reason):
+            guard reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                throw DocumentError.inconclusiveWithoutReason(command.id)
+            }
+        case .conclusive:
+            break
+        }
+        experiment.results.append(ExperimentResultVersion(
+            observation: command.observation,
+            measurements: command.measurements,
+            limits: command.limits,
+            sourceObjectID: command.sourceObjectID,
+            outcome: command.outcome,
+            provenance: command.provenance,
+            recordedAt: date
+        ))
+        document.experiments.experiments[command.id] = experiment
+    }
+
+    private static func proposeLearning(_ command: ProposeLearning, in document: inout KollioDocument, at date: Date) throws {
+        guard let experiment = document.experiments.experiment(command.experimentID) else {
+            throw DocumentError.unknownExperiment(command.experimentID)
+        }
+        guard command.statement.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw DocumentError.emptyLearningStatement(command.id)
+        }
+        // A learning proposed about nothing applies to nothing, and nothing is
+        // the one scope the command layer refuses everywhere.
+        guard command.scopeObjectIDs.isEmpty == false else {
+            throw DocumentError.learningWithoutScope(command.id)
+        }
+        for objectID in command.scopeObjectIDs {
+            guard document.content[objectID] != nil else {
+                throw DocumentError.unknownObject(objectID)
+            }
+        }
+        let finding = LearnedFinding(
+            id: command.id,
+            statement: command.statement,
+            experimentID: experiment.id,
+            revisionIndex: experiment.results.count - 1,
+            scopeObjectIDs: command.scopeObjectIDs,
+            proposedAt: date,
+            provenance: command.provenance
+        )
+        document.experiments.experiments[command.experimentID]?.findings.append(finding)
+    }
+
+    private static func acceptLearning(_ command: AcceptLearning, in document: inout KollioDocument, at date: Date) throws {
+        _ = date
+        guard let finding = document.experiments.finding(command.id) else {
+            throw DocumentError.unknownFinding(command.id)
+        }
+        guard let decision = document.decisions[command.decisionID] else {
+            throw DocumentError.unknownDecision(command.decisionID)
+        }
+        guard finding.status == .proposed else {
+            throw DocumentError.learningAlreadyAccepted(command.id)
+        }
+        // The decision must be about something the learning covers. A learning
+        // about the export route cannot be accepted by a decision about the
+        // CRM connection; that would be accepting one thing by naming another.
+        let decisionCoversScope = finding.scopeObjectIDs.contains(decision.targetObjectID)
+        guard decisionCoversScope else {
+            throw DocumentError.decisionOutsideLearningScope(command.id, command.decisionID)
+        }
+        if var experiment = document.experiments.experiment(finding.experimentID) {
+            guard let index = experiment.findings.firstIndex(where: { $0.id == command.id }) else { return }
+            experiment.findings[index].status = .accepted
+            experiment.findings[index].acceptedByDecision = decision.id
+            document.experiments.experiments[finding.experimentID] = experiment
+        }
+    }
+
+    /// Every expected-evidence link must name an object the document holds, and    /// Every expected-evidence link must name an object the document holds, and
+    /// name it once. A link to a thing that is not there is not a link, it is a
+    /// hope, and the document does not store hopes.
+    private static func validateEvidenceLinks(_ ids: [ObjectID], of experiment: ExperimentID, in document: KollioDocument) throws {
+        var seen: Set<ObjectID> = []
+        for id in ids {
+            guard document.content[id] != nil else {
+                throw DocumentError.unknownObject(id)
+            }
+            guard seen.insert(id).inserted else {
+                throw DocumentError.duplicateEvidenceLink(experiment, id)
+            }
         }
     }
 
@@ -1482,4 +1745,3 @@ extension DocumentStore {
         return criteria.filter { seen.insert($0.id).inserted }
     }
 }
-

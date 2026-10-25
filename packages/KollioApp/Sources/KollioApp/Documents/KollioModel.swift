@@ -6,9 +6,27 @@ import KollioCore
 public struct DocumentFileStore: Sendable {
     public let directory: URL
 
+    /// Where documents live, and why that can be pointed somewhere else.
+    ///
+    /// `KOLLIO_DOCUMENTS` names a directory, and the app uses it instead of its own
+    /// folder. It exists because a UI test that drives the real window has to start
+    /// from a known state, and because a test that writes to somebody's documents
+    /// is a test that loses their work. It is also the difference between two copies
+    /// of the app sharing one set of files and not.
+    ///
+    /// It is not a setting a person is offered: there is no control panel, and
+    /// nothing in the interface changes when it is set.
+    public static func documentsDirectoryFromEnvironment() -> URL? {
+        guard let path = ProcessInfo.processInfo.environment["KOLLIO_DOCUMENTS"],
+              path.isEmpty == false else { return nil }
+        return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
     public init(directory: URL? = nil) {
         if let directory {
             self.directory = directory
+        } else if let overridden = Self.documentsDirectoryFromEnvironment() {
+            self.directory = overridden
         } else {
             let base = FileManager.default
                 .urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -28,10 +46,16 @@ public struct DocumentFileStore: Sendable {
     /// own file" work across launches: the previous document stays on disk and
     /// is not overwritten, and the newest one is the one that was being worked
     /// on.
+    /// The newest document on disk, whatever its name.
+    ///
+    /// The default file used to win whenever it existed, on the grounds that it was
+    /// the one a launch means to open. That made an empty document immortal: a
+    /// launch that found nothing saved an empty document to the default name, and
+    /// from then on every launch preferred it over real work written later. On this
+    /// machine that file was written at 12:08 and every launch since opened nothing,
+    /// while documents written minutes earlier sat on disk unopened. A name is not a
+    /// claim about which document is the work; the date is.
     public var mostRecentDocumentURL: URL? {
-        if FileManager.default.fileExists(atPath: defaultDocumentURL.path) {
-            return defaultDocumentURL
-        }
         let candidates = (try? FileManager.default.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.contentModificationDateKey]
@@ -39,12 +63,39 @@ public struct DocumentFileStore: Sendable {
         return candidates.max { lhs, rhs in
             let left = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
             let right = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-            return left < right
+            if left != right { return left < right }
+            // Two documents written inside the same second share a modification
+            // date, and a comparison that ties leaves the winner to whatever order
+            // the directory happens to be read in. The names are minted with a
+            // sortable stamp, `Kollio-yyyyMMdd-HHmmss-XXXX`, so the name is a
+            // second, deterministic ordering. It depends on that stamp, which is
+            // why it is written down here rather than left implicit.
+            return lhs.lastPathComponent < rhs.lastPathComponent
         }
     }
 
     public func url(named name: String) -> URL {
         directory.appendingPathComponent("\(name).\(DocumentCodec.fileExtension)")
+    }
+
+    /// A stable, human-readable file target for a document title.
+    ///
+    /// The title remains untouched in the document. Only characters that can
+    /// change path meaning are replaced in the registry filename.
+    public func availableURL(named title: String, excluding currentURL: URL? = nil) -> URL {
+        let forbidden = CharacterSet(charactersIn: "/:\0")
+        let filename = title.unicodeScalars.map { scalar in
+            forbidden.contains(scalar) ? "-" : String(scalar)
+        }.joined().trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ".")))
+        let base = filename.isEmpty ? "Kollio" : String(filename.prefix(120))
+        var candidate = url(named: base)
+        var suffix = 2
+        while candidate.standardizedFileURL != currentURL?.standardizedFileURL,
+              FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = url(named: "\(base) \(suffix)")
+            suffix += 1
+        }
+        return candidate
     }
 
     public func load(_ url: URL) throws -> KollioDocument {
@@ -109,6 +160,16 @@ public final class KollioModel {
     /// The synthesis the card is showing, if one is open. Transient like every
     /// other card: it is where a person is looking, not a fact about the document.
     public var openSummaryID: SummaryID?
+    /// The experiment card that is open, if one is.
+    ///
+    /// Transient like every card on this canvas, and a reading of what was built:
+    /// it writes nothing, so closing it writes nothing either.
+    public var openExperimentID: ExperimentID?
+    /// The history timeline that is open, if one is.
+    ///
+    /// DEC-06: a temporary contextual timeline. It reads the journal and writes
+    /// nothing, so the present is always exactly where the person left it.
+    public var openHistoryID: ObjectID?
     /// Whether the proposal's attribution panel is open. Transient, and closed by
     /// default: the destination and what was read are things a person asks for, not
     /// something the interface puts in front of them every time.
@@ -313,7 +374,7 @@ public final class KollioModel {
     }
 
     /// Objects the canvas actually draws: everything active, plus the root of
-    /// each collapsed direction.
+    /// each collapsed direction, plus whatever a search has opened up.
     public var visibleInstances: [NodeInstance] {
         let roots = collapsedRoots
         // Folded frames hide the drawings they hold, in this view only. An object
@@ -321,6 +382,9 @@ public final class KollioModel {
         let folded = document.presentation.hiddenInstanceIDs()
         return document.presentation.instances.filter { instance in
             guard let object = document.object(instance.objectID) else { return false }
+            // A search result is shown by showing it. This is the whole of the
+            // reveal: the view changes, the document does not.
+            if revealedBySearch.contains(object.id) { return true }
             if folded.contains(instance.id) { return false }
             if object.isSetAside { return roots.contains(object.id) }
             return !isHiddenByCollapsedAncestor(instance.objectID)
@@ -355,12 +419,29 @@ public final class KollioModel {
     /// is catchable is what is visible.
     public func relationship(near point: Position) -> RelationshipID? {
         let zoom = camera.zoom
-        let obstacles = hitTestObstacles()
+        let obstacles = RelationshipGeometry.ObstacleSet(hitTestObstacles())
         var best: (RelationshipID, Double)?
         for relationship in relationshipsToRender() {
-            guard let route = routedRoute(for: relationship, obstacles: obstacles) else { continue }
-            let distance = route.distance(to: point)
+            guard let anchors = screenAnchors(for: relationship) else { continue }
             let tolerance = relationship.hitArea(zoom: zoom) / 2
+            // Every route, direct or detoured, stays inside the corridor
+            // routedRoute draws around the chord, so a point outside that
+            // corridor (grown by the tolerance) cannot be within tolerance of
+            // any route. The check is four comparisons; the routing it skips is
+            // what cost 10 ms per click at 200 relationships, because it used to
+            // run for every link on every click, including the ones nowhere
+            // near the pointer.
+            let dx = anchors.end.point.x - anchors.start.point.x
+            let dy = anchors.end.point.y - anchors.start.point.y
+            let chordLength = (dx * dx + dy * dy).squareRoot()
+            let corridor = RelationshipGeometry.corridorFor(
+                start: anchors.start.point,
+                end: anchors.end.point,
+                width: chordLength * 0.8 + RelationshipGeometry.clearance * 2 + 68 + tolerance
+            )
+            guard corridor.contains(point) else { continue }
+            guard let route = route(for: relationship, anchors: anchors, in: obstacles) else { continue }
+            let distance = route.distance(to: point)
             guard distance <= tolerance else { continue }
             // Two links crossing: the nearer one wins, so the answer does not depend
             // on the order the document happens to store them in.
@@ -371,28 +452,39 @@ public final class KollioModel {
         return best?.0
     }
 
-    private func hitTestObstacles() -> [ObjectID: Rect] {
-        var rects: [ObjectID: Rect] = [:]
+    private func hitTestObstacles() -> [(id: ObjectID, rect: Rect)] {
+        var rects: [(id: ObjectID, rect: Rect)] = []
+        rects.reserveCapacity(document.presentation.instances.count)
         for instance in visibleInstances {
             guard let frame = frame(of: instance.objectID) else { continue }
-            rects[instance.objectID] = camera.toScreen(frame)
+            rects.append((instance.objectID, camera.toScreen(frame)))
         }
         return rects
     }
 
-    private func routedRoute(for relationship: Relationship, obstacles: [ObjectID: Rect]) -> ConnectorRoute? {
+    /// The two screen anchors of one relationship, drag offset folded in, before
+    /// any routing decision.
+    private func screenAnchors(for relationship: Relationship) -> (start: AnchorPoint, end: AnchorPoint)? {
         guard let fromFrame = frame(of: relationship.from),
               let toFrame = frame(of: relationship.to) else { return nil }
         let fromRect = offsetRect(fromFrame, by: relationship.from)
         let toRect = offsetRect(toFrame, by: relationship.to)
         let (start, end) = RelationshipGeometry.endpoints(of: relationship, from: fromRect, to: toRect)
-        let others = obstacles.compactMap { id, rect in
-            id == relationship.from || id == relationship.to ? nil : rect
-        }
-        return RelationshipGeometry.routedRoute(
-            from: AnchorPoint(point: camera.toScreen(start.point), direction: start.direction),
-            to: AnchorPoint(point: camera.toScreen(end.point), direction: end.direction),
-            obstacles: others
+        return (
+            AnchorPoint(point: camera.toScreen(start.point), direction: start.direction),
+            AnchorPoint(point: camera.toScreen(end.point), direction: end.direction)
+        )
+    }
+
+    private func route(
+        for relationship: Relationship,
+        anchors: (start: AnchorPoint, end: AnchorPoint),
+        in obstacles: RelationshipGeometry.ObstacleSet
+    ) -> ConnectorRoute? {
+        RelationshipGeometry.routedRoute(
+            from: anchors.start,
+            to: anchors.end,
+            obstacles: obstacles.excluding(relationship.from, relationship.to)
         )
     }
 
@@ -518,6 +610,11 @@ public final class KollioModel {
         case citation
         case readingSource
         case frameName
+        case search
+        case presentation
+        case resultDraft
+        case experiment
+        case history
         case comparison
         case impactReview
         case preview
@@ -533,6 +630,15 @@ public final class KollioModel {
             if model.openCitationClaim != nil { return .citation }
             if model.readingSourceID != nil { return .readingSource }
             if model.renamingFrameID != nil { return .frameName }
+            // The search is above everything it can be reading: it is the one card
+            // that is about the whole document rather than about a selection.
+            if model.search != nil { return .search }
+            // A tour is a mode rather than a card, so it is above everything: Escape
+            // leaves the reading rather than closing one field inside it.
+            if model.presentation != nil { return .presentation }
+            if model.resultDraft != nil { return .resultDraft }
+            if model.openExperimentID != nil { return .experiment }
+            if model.openHistoryID != nil { return .history }
             if model.openComparison != nil { return .comparison }
             // The impact review sits above the selection, and below the citations it
             // is read from: it is a card about a claim, so it closes before the
@@ -566,11 +672,38 @@ public final class KollioModel {
         case .readingSource:
             readingSourceID = nil
             return .readingSource
+        case .resultDraft:
+            // A closed draft keeps nothing and changes nothing: what was typed
+            // and never submitted was never recorded.
+            resultDraft = nil
+            return .resultDraft
+        case .experiment:
+            // Closing the card writes nothing: it is a reading of what was built,
+            // and the experiments stay exactly as they are.
+            openExperimentID = nil
+            return .experiment
+        case .history:
+            // DEC-06 AC02: returning to the present mutates nothing. The
+            // timeline is a reading of the journal, and closing it is leaving
+            // a reading, which is not a change.
+            openHistoryID = nil
+            return .history
         case .comparison:
             // Closing the comparison writes nothing: it is a reading of the document
             // and the cells already recorded stay exactly where they are.
             openComparison = nil
             return .comparison
+        case .search:
+            // Closing a search forgets the reveal and writes nothing. The person
+            // looked; looking is not a decision and there is nothing to undo.
+            search = nil
+            revealedBySearch = []
+            return .search
+        case .presentation:
+            // Leaving a tour puts the view back exactly where it was, and writes
+            // nothing: a reading is not a change.
+            exitPresentation()
+            return .presentation
         case .frameName:
             // Closing the field keeps what was typed nowhere and changes nothing: a
             // rename that was never submitted was never asked for.
@@ -608,6 +741,12 @@ public final class KollioModel {
         renamingFrameID = nil
         renamingFrameDraft = ""
         openComparison = nil
+        openExperimentID = nil
+        openHistoryID = nil
+        resultDraft = nil
+        search = nil
+        revealedBySearch = []
+        presentation = nil
     }
 
     /// The actions offered for a selected object: at most three shown, the rest
@@ -616,6 +755,12 @@ public final class KollioModel {
     /// The set is a model fact so that `ContextualActionSet.maximumPrimary` can be
     /// checked by a test rather than trusted to a `HStack`.
     public func contextualActions(for id: ObjectID) -> ContextualActionSet {
+        // The set is a model fact, and during a reading tour the fact is that there
+        // are none. The command layer refuses a write either way; this is what
+        // stops the buttons from being there to press.
+        guard isPresenting == false else {
+            return ContextualActionSet(primary: [], secondary: [], isDefault: nil)
+        }
         let object = document.object(id)
         return ContextualActionSet.forObject(
             id: id,
@@ -630,8 +775,264 @@ public final class KollioModel {
             // offered whenever the document has anything in it. With nothing in it
             // the composer would produce four empty sections and a card saying
             // nothing, which is a worse answer than no action.
-            canComposeSynthesis: document.content.isEmpty == false
+            canComposeSynthesis: document.content.isEmpty == false,
+            canReviewExperiment: document.experiments.experiments(targeting: id).isEmpty == false,
+            canReviewHistory: document.history.narrative(for: id, in: document).isEmpty == false
         )
+    }
+
+    // MARK: Search (CAN-09)
+
+    /// The search that is open, if one is.
+    ///
+    /// Transient, like every other card on this canvas. It is a reading of the
+    /// document and not a change to it, which is why closing it writes nothing and
+    /// why nothing it shows is ever undoable: there is nothing to undo.
+    public var search: SearchState?
+
+    public struct SearchState: Equatable {
+        /// What has been typed, kept verbatim.
+        ///
+        /// Kept when nothing is found, on purpose. A person who searched for
+        /// something and got nothing should be able to correct the word, not to
+        /// start again from an empty field.
+        public var query: String
+        public var outcome: DocumentSearch.Outcome?
+        /// The result the person is reading, if any. The card keeps its place
+        /// rather than jumping on every keystroke.
+        public var selectedObjectID: ObjectID?
+
+        public init(query: String = "", outcome: DocumentSearch.Outcome? = nil, selectedObjectID: ObjectID? = nil) {
+            self.query = query
+            self.outcome = outcome
+            self.selectedObjectID = selectedObjectID
+        }
+
+        public var results: [DocumentSearch.Result] { outcome?.results ?? [] }
+        public var hasSearched: Bool { outcome != nil }
+        public var isEmpty: Bool { results.isEmpty }
+    }
+
+    /// Objects a search has opened up in this view, and nothing else.
+    ///
+    /// CAN-09: "Choosing a result centres on it deliberately, temporarily
+    /// revealing a folded path. A revealed set-aside result is not a reversed
+    /// decision." The set is the reveal, it lives here rather than in the document,
+    /// and it is emptied when the card closes. Reopening stays a named action.
+    public var revealedBySearch: Set<ObjectID> = []
+
+    /// Opens the search, keeping the last query so the card is not empty every
+    /// time it is summoned.
+    public func openSearch() {
+        if let search {
+            self.search = search
+        } else {
+            search = SearchState()
+        }
+    }
+
+    /// Runs a textual search.
+    ///
+    /// No model, no network, no command: the seam is not touched at all, which is
+    /// CAN-09's "no intelligence for a textual search" and the reason a search
+    /// costs nothing and cannot fail in a way that changes the document.
+    public func updateSearch(_ text: String) {
+        var state = search ?? SearchState()
+        state.query = text
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // An empty field is not a search that found nothing, so it reports
+        // nothing at all rather than "0 results".
+        state.outcome = trimmed.isEmpty
+            ? nil
+            : DocumentSearch().search(text, in: document, languageCode: languageCode)
+        state.selectedObjectID = nil
+        search = state
+    }
+
+    /// Clears the query and the filter, and puts the canvas back as it was.
+    public func clearSearch() {
+        search = nil
+        revealedBySearch = []
+    }
+
+    /// Centres on a result and opens up whatever is folded around it.
+    ///
+    /// Three things happen and nothing else: the object becomes visible, the view
+    /// moves to it, and it is selected. No decision is touched, no lifecycle
+    /// changes, and the revision does not move, which is AC02 checked by the model
+    /// rather than by the interface's good manners.
+    @discardableResult
+    public func revealSearchResult(_ result: DocumentSearch.Result) -> Bool {
+        guard document.object(result.objectID) != nil else { return false }
+        revealedBySearch.insert(result.objectID)
+        // The branch is opened up as well, or a result buried inside a collapsed
+        // direction would show a card about something the canvas still hides.
+        for id in document.descendants(of: result.objectID) { revealedBySearch.insert(id) }
+        selection = [result.objectID]
+        centre(on: result.objectID)
+        return true
+    }
+
+    /// Moves the view onto an object without changing what is on the canvas.
+    private func centre(on id: ObjectID) {
+        guard let rect = frame(of: id) else { return }
+        let zoom = camera.zoom
+        let target = Position(
+            x: viewport.width / 2 - rect.center.x * zoom,
+            y: viewport.height / 2 - rect.center.y * zoom
+        )
+        camera = Camera(zoom: zoom, translation: target)
+    }
+
+    /// What a result means, in the interface's language. Kept out of the view so
+    /// the wording can be tested and the search stays a pure value.
+    public func searchStateLabel(for result: DocumentSearch.Result) -> String {
+        switch result.state {
+        case .visible: return L10n.searchStateVisible
+        case .setAside: return L10n.searchStateSetAside
+        case .archived: return L10n.searchStateArchived
+        }
+    }
+
+    public func searchFieldLabel(for result: DocumentSearch.Result) -> String {
+        switch result.field {
+        case .title: return L10n.searchFieldTitle
+        case .body: return L10n.searchFieldBody
+        case .reason: return L10n.searchFieldReason
+        }
+    }
+
+    // MARK: Presentation (CAN-10)
+
+    /// The tour being followed, if one is running.
+    ///
+    /// Transient like every other reading surface on this canvas, and read-only by
+    /// construction: a presentation cannot change the document, and the one path
+    /// that applies commands refuses while it runs.
+    public var presentation: PresentationSession?
+
+    public var isPresenting: Bool { presentation != nil }
+
+    public struct PresentationSession: Equatable {
+        public var path: ReadingPath
+        /// Resolved once, when the tour began. The document cannot change while a
+        /// tour is running, so re-resolving on every step would be work whose
+        /// answer is already known.
+        public var resolution: ReadingPath.Resolution
+        public var index: Int
+        /// The camera as it was before the first step. CAN-10 AC02: exit returns to
+        /// the previous context, so this is remembered exactly and restored
+        /// exactly, not approximated by a reframe.
+        public var cameraBefore: Camera
+        /// Whether the camera was moved at all. A path whose points have nowhere to
+        /// stand leaves the view alone, and exiting must not then "restore" a
+        /// camera that never moved.
+        public var didMoveCamera: Bool
+
+        public init(
+            path: ReadingPath,
+            resolution: ReadingPath.Resolution,
+            index: Int = 0,
+            cameraBefore: Camera,
+            didMoveCamera: Bool = false
+        ) {
+            self.path = path
+            self.resolution = resolution
+            self.index = index
+            self.cameraBefore = cameraBefore
+            self.didMoveCamera = didMoveCamera
+        }
+
+        public var entry: ReadingPath.Entry? {
+            resolution.entries.indices.contains(index) ? resolution.entries[index] : nil
+        }
+        public var count: Int { resolution.entries.count }
+        /// One-based, for a person counting. A progress line that starts at zero
+        /// reads as "nothing done yet" on the first step.
+        public var position: Int { count == 0 ? 0 : index + 1 }
+    }
+
+    /// Starts a tour, following the document's reading order unless a path is
+    /// given.
+    ///
+    /// Refused on an empty tour rather than opened over nothing: a presentation with
+    /// no steps is a card that says "0 of 0" and a reader's time.
+    @discardableResult
+    public func beginPresentation(path: ReadingPath? = nil) -> Bool {
+        let chosen = path ?? ReadingPath.automatic(in: document)
+        let resolution = chosen.resolved(in: document, languageCode: languageCode)
+        guard resolution.isEmpty == false else {
+            status = L10n.presentationNothingToPresent
+            return false
+        }
+        presentation = PresentationSession(path: chosen, resolution: resolution, cameraBefore: camera)
+        // Cards opened before the tour would sit on top of it, and a reading mode
+        // with a claim editor open is a trap rather than a reading. The search goes
+        // too: its query is kept in the card, which can be summoned again, and a
+        // tour has its own navigation.
+        search = nil
+        composer = nil
+        claimDraft = nil
+        stanceDraft = nil
+        openCitationClaim = nil
+        openComparison = nil
+        preview = nil
+        impactAssessment = nil
+        status = nil
+        return presentCurrentStep()
+    }
+
+    /// One step forward, and no further than the last one.
+    @discardableResult
+    public func advancePresentation() -> Bool {
+        guard var session = presentation, session.index + 1 < session.count else { return false }
+        session.index += 1
+        presentation = session
+        return presentCurrentStep()
+    }
+
+    /// One step back, and no further than the first one.
+    ///
+    /// It stops at the ends rather than wrapping. A tour that wraps is a carousel,
+    /// and the reader loses track of where they are in the document.
+    @discardableResult
+    public func rewindPresentation() -> Bool {
+        guard var session = presentation, session.index > 0 else { return false }
+        session.index -= 1
+        presentation = session
+        return presentCurrentStep()
+    }
+
+    /// Leaves the tour and puts the view back where it was.
+    public func exitPresentation() {
+        guard let session = presentation else { return }
+        if session.didMoveCamera { camera = session.cameraBefore }
+        presentation = nil
+    }
+
+    /// Opens the source a step points at.
+    ///
+    /// Reading is not changing, so this stays available while a tour is running,
+    /// which is the whole of "keeps source and navigation".
+    public func openPresentedSource(_ point: ReadingPath.Point) {
+        guard case .source(let id) = point else { return }
+        readingSourceID = id
+    }
+
+    /// Moves the view onto the current point, when there is one to move onto.
+    private func presentCurrentStep() -> Bool {
+        guard var session = presentation, let entry = session.entry else { return false }
+        guard let anchor = entry.anchorObjectID else {
+            // A source nothing cites has no place on the canvas. The card says so;
+            // the view does not move to nowhere.
+            return true
+        }
+        revealedBySearch.insert(anchor)
+        selection = [anchor]
+        centre(on: anchor)
+        session.didMoveCamera = true
+        presentation = session
+        return true
     }
 
     // MARK: Impact of new information
@@ -1388,7 +1789,7 @@ public final class KollioModel {
             )
         }
         guard moves.isEmpty == false else { return }
-        session.apply(
+        apply(
             [.moveNodeInstances(MoveNodeInstances(moves: moves))],
             label: L10n.undoMove
         )
@@ -1414,6 +1815,26 @@ public final class KollioModel {
     /// so, because a command that half-applied would be a corrupted document.
     @discardableResult
     public func perform(_ commands: [Command], label: String) -> Bool {
+        apply(commands, label: label)
+    }
+
+    /// Every write goes through here, and none of them goes through while a
+    /// presentation is running.
+    ///
+    /// CAN-10: "A reader cannot trigger a modification by accident." The guarantee
+    /// is placed here rather than in each action, because a guard that has to be
+    /// remembered at forty call sites is a guard that will be missed once. This was
+    /// not true before: `perform` claimed to be the single path while five call
+    /// sites used `session.apply` directly, so any of them could have written during
+    /// a reading tour.
+    @discardableResult
+    private func apply(_ commands: [Command], label: String) -> Bool {
+        guard isPresenting == false else {
+            // Said plainly, and not as an error the person caused: they pressed a
+            // key that does not exist in this mode, and the mode is what says so.
+            status = L10n.presentationReadOnly
+            return false
+        }
         guard commands.isEmpty == false else { return true }
         guard session.apply(commands, label: label) else {
             status = L10n.errorGeneric
@@ -1767,6 +2188,9 @@ public final class KollioModel {
     /// selecting two branches and stating a constraint means "this applies to
     /// these", which is the scoped case and should not be the fiddly one.
     public func startClaim(role: Claim.Role, anchor: ObjectID) {
+        // One commitment at a time: the two drafts are cards over the same
+        // anchor, and two of them would overlap rather than stack.
+        experimentDraft = nil
         let scope = selection.isEmpty ? [anchor] : Array(selection)
         claimDraft = ClaimDraft(anchor: anchor, role: role, scopeObjects: Set(scope))
     }
@@ -1800,6 +2224,304 @@ public final class KollioModel {
         ))], label: L10n.undoAssertClaim) else { return false }
         claimDraft = nil
         return true
+    }
+
+    // MARK: Experiments (DEC-04)
+
+    /// An experiment being built.
+    ///
+    /// The same shape as a claim draft on purpose: the person is committing to
+    /// something they will be held to later, and the fields that cost something
+    /// to get wrong are required here as they are in the command layer. Evidence
+    /// is prefilled from the selection, because the usual way to build an
+    /// experiment is to have just looked at the things it will judge.
+    public struct ExperimentDraft: Equatable, Identifiable {
+        public var id = UUID()
+        public var anchor: ObjectID
+        public var question: String = ""
+        public var method: String = ""
+        public var criterion: String = ""
+        public var expectedEvidence: Set<ObjectID> = []
+        public var isSimulation: Bool = false
+
+        public init(anchor: ObjectID, expectedEvidence: Set<ObjectID> = []) {
+            self.anchor = anchor
+            self.expectedEvidence = expectedEvidence
+        }
+    }
+
+    public var experimentDraft: ExperimentDraft?
+
+    /// Opens the experiment composer for an object.
+    public func startExperiment(anchor: ObjectID) {
+        // One commitment at a time, as above.
+        claimDraft = nil
+        let evidence = selection.isEmpty ? [] : selection.subtracting([anchor])
+        experimentDraft = ExperimentDraft(anchor: anchor, expectedEvidence: evidence)
+    }
+
+    /// Builds the drafted experiment.
+    ///
+    /// Refused with a reason rather than built loose, for the two fields the
+    /// command layer refuses too: a question nobody asked and a criterion that
+    /// judges nothing. Whitespace-only is empty in meaning.
+    @discardableResult
+    public func submitExperiment() -> Bool {
+        guard let draft = experimentDraft else { return false }
+        let question = draft.question.trimmingCharacters(in: .whitespacesAndNewlines)
+        let criterion = draft.criterion.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard question.isEmpty == false else {
+            status = L10n.experimentQuestionEmpty
+            return false
+        }
+        guard criterion.isEmpty == false else {
+            status = L10n.experimentCriterionEmpty
+            return false
+        }
+        let method = draft.method.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard perform([.createExperiment(.init(
+            id: KollioID.experiment("experiment-" + UUID().uuidString),
+            targetObjectID: draft.anchor,
+            question: LocalizedText(question),
+            method: method.isEmpty ? nil : LocalizedText(method),
+            successCriterion: LocalizedText(criterion),
+            expectedEvidence: Array(draft.expectedEvidence).sorted { $0.rawValue < $1.rawValue },
+            isSimulation: draft.isSimulation,
+            provenance: .human("local-user")
+        ))], label: L10n.undoCreateExperiment) else { return false }
+        experimentDraft = nil
+        return true
+    }
+
+    /// The experiments built on an object's reasoning, oldest first.
+    public func experiments(on objectID: ObjectID) -> [Experiment] {
+        document.experiments.experiments(targeting: objectID)
+    }
+
+    /// The local history of one object, newest last, reversals folded in.
+    ///
+    /// DEC-06: the origin of a decision is answerable because every recorded
+    /// action carries the label the person acted under, and a reversal is
+    /// folded into the action it cancels rather than listed beside it.
+    public func history(of objectID: ObjectID) -> [HistoryNarrativeItem] {
+        document.history.narrative(for: objectID, in: document)
+    }
+
+    /// Opens the timeline for an object.
+    @discardableResult
+    public func openHistory(of objectID: ObjectID) -> Bool {
+        guard history(of: objectID).isEmpty == false else { return false }
+        openHistoryID = objectID
+        return true
+    }
+
+    // MARK: History preview / restore / purge (DEC-06)
+
+    /// A read-only view of the document as it stood at a history entry.
+    ///
+    /// Rebuilt by replaying the commands of the entries before it. Two things
+    /// the replay must not do, and did:
+    ///
+    /// - **It must not replay a reversal.** A reversal entry carries the payload
+    ///   of the action it undid, and applying it would resurrect exactly what the
+    ///   person took back. Only `.applied` entries are replayed.
+    /// - **It must not empty the journal.** The history is the record of what
+    ///   happened, not part of the state being looked at. A restore built from
+    ///   this would otherwise delete the very timeline the person is reading.
+    ///
+    /// The revision of the rebuilt document counts the batches replayed rather
+    /// than reproducing the original number, so it is a position, not an identity.
+    public func previewHistory(at entryID: HistoryEntryID) throws -> KollioDocument? {
+        guard document.history.entry(entryID) != nil else { return nil }
+        var store = DocumentStore(document: session.journalBaseDocument)
+        for entry in document.history.entries {
+            if entry.id == entryID { break }
+            guard case .applied = entry.kind, entry.commands.isEmpty == false else { continue }
+            try store.apply(entry.commands, at: entry.at)
+        }
+        var target = store.document
+        target.history = document.history
+        return target
+    }
+
+    /// Restores the document to the state at a history entry by applying
+    /// a new transaction (DEC-06 AC03). The current state is not rolled back;
+    /// a fresh batch of commands is recorded with its own label.
+    @discardableResult
+    public func restoreHistory(to entryID: HistoryEntryID, label: String) -> Bool {
+        guard let target = try? previewHistory(at: entryID) else { return false }
+        guard let command = try? RestoreDocument(document: target) else { return false }
+        // A restore is an ordinary validated transaction. It therefore gets one
+        // undo entry and a replayable journal command instead of replacing the
+        // live store behind the undo stack.
+        return perform([.restoreDocument(command)], label: label)
+    }
+
+    /// Removes history entries older than a retention horizon.
+    ///
+    /// Returns the number of entries purged. A purged entry leaves a
+    /// trace (its label and date) so the timeline shows what was removed
+    /// without inventing content.
+    @discardableResult
+    public func purgeHistory(olderThan date: Date) -> Int {
+        let before = document.history.entries.count
+        var updated = session.document
+        var ledger = updated.history
+        ledger.removeAll { $0.at < date }
+        updated.history = ledger
+        session.replaceDocument(with: updated)
+        return before - updated.history.entries.count
+    }
+
+    // MARK: Results (DEC-05)
+
+    /// A result being recorded against an experiment.
+    ///
+    /// The observation and the interpretation are two fields here as they are
+    /// in the domain, and the composer keeps them apart: the observation is
+    /// what the person saw, the outcome is their stance on the criterion, and
+    /// the proposal of a learning is a separate act after the result exists.
+    public struct ResultDraft: Equatable, Identifiable {
+        public var id = UUID()
+        public var experimentID: ExperimentID
+        public var observation: String = ""
+        public var measurementValue: String = ""
+        public var measurementUnit: String = ""
+        public var limits: String = ""
+        /// The document object that carries the observation, when the person
+        /// selected one before opening the result composer.
+        public var sourceObjectID: ObjectID?
+        public var inconclusive: Bool = false
+        public var inconclusiveReason: String = ""
+        /// The stance on the criterion, when the person says the run concluded.
+        public var criterionMet: Bool = true
+
+        public init(experimentID: ExperimentID, sourceObjectID: ObjectID? = nil) {
+            self.experimentID = experimentID
+            self.sourceObjectID = sourceObjectID
+        }
+    }
+
+    public var resultDraft: ResultDraft?
+
+    /// The learning being written into a card, per experiment. Transient text:
+    /// it belongs to the card, and closing the card forgets it.
+    public var learningDrafts: [ExperimentID: String] = [:]
+
+    public func learningDraft(for id: ExperimentID) -> String? {
+        learningDrafts[id]
+    }
+
+    public func setLearningDraft(_ text: String, for id: ExperimentID) {
+        learningDrafts[id] = text
+    }
+
+    /// Proposes the drafted learning about the experiment's target.
+    @discardableResult
+    public func submitLearningDraft(for id: ExperimentID) -> Bool {
+        guard let experiment = document.experiments.experiment(id) else { return false }
+        let scope: Set<ObjectID> = selection.isEmpty
+            ? [experiment.targetObjectID]
+            : selection
+        defer { learningDrafts[id] = nil }
+        return proposeLearning(from: id, statement: learningDrafts[id] ?? "", scope: scope)
+    }
+
+    /// The object the open result draft sits beside, for positioning.
+    public var resultDraftAnchor: ObjectID? {
+        document.experiments.experiment(resultDraft?.experimentID ?? ExperimentID(""))?.targetObjectID
+    }
+
+    /// Opens the result composer for an experiment.
+    public func startRecordingResult(_ experimentID: ExperimentID) {
+        experimentDraft = nil
+        let target = document.experiments.experiment(experimentID)?.targetObjectID
+        let source = selection
+            .filter { $0 != target && document.object($0) != nil }
+            .sorted { $0.rawValue < $1.rawValue }
+            .first
+        resultDraft = ResultDraft(experimentID: experimentID, sourceObjectID: source)
+    }
+
+    /// Records the drafted result.
+    ///
+    /// Refused with a reason for the two things the command layer refuses: an
+    /// observation with nothing observed, and an inconclusive answer that
+    /// cannot say what is missing. A measurement row is kept only when a
+    /// number has both halves of itself filled in; a half-written one is
+    /// dropped rather than half-recorded.
+    @discardableResult
+    public func submitResult() -> Bool {
+        guard let draft = resultDraft else { return false }
+        let observation = draft.observation.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard observation.isEmpty == false else {
+            status = L10n.resultObservationEmpty
+            return false
+        }
+        var measurements: [ExperimentMeasurement] = []
+        let rawValue = draft.measurementValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawUnit = draft.measurementUnit.trimmingCharacters(in: .whitespacesAndNewlines)
+        if rawValue.isEmpty == false || rawUnit.isEmpty == false {
+            if let value = Double(rawValue.replacingOccurrences(of: ",", with: ".")), rawUnit.isEmpty == false {
+                measurements = [ExperimentMeasurement(value: value, unit: rawUnit)]
+            } else {
+                status = L10n.resultMeasurementIncomplete
+                return false
+            }
+        }
+        let outcome: ExperimentResultVersion.Outcome
+        if draft.inconclusive {
+            let reason = draft.inconclusiveReason.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard reason.isEmpty == false else {
+                status = L10n.resultReasonMissing
+                return false
+            }
+            outcome = .inconclusive(reason)
+        } else {
+            outcome = .conclusive(draft.criterionMet ? .criterionMet : .criterionNotMet)
+        }
+        let limits = draft.limits.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard perform([.recordExperimentResult(RecordExperimentResult(
+            id: draft.experimentID,
+            observation: observation,
+            measurements: measurements,
+            limits: limits.isEmpty ? nil : limits,
+            sourceObjectID: draft.sourceObjectID,
+            outcome: outcome,
+            provenance: .human("local-user")
+        ))], label: L10n.undoRecordResult) else { return false }
+        resultDraft = nil
+        return true
+    }
+
+    /// Proposes a learning from the newest result of an experiment.
+    @discardableResult
+    public func proposeLearning(from experimentID: ExperimentID, statement: String, scope: Set<ObjectID>) -> Bool {
+        let text = statement.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.isEmpty == false else {
+            status = L10n.resultLearningEmpty
+            return false
+        }
+        guard scope.isEmpty == false else {
+            status = L10n.claimScopeEmpty
+            return false
+        }
+        guard perform([.proposeLearning(ProposeLearning(
+            id: FindingID("finding-" + UUID().uuidString),
+            experimentID: experimentID,
+            statement: LocalizedText(text),
+            scopeObjectIDs: scope.sorted { $0.rawValue < $1.rawValue },
+            provenance: .human("local-user")
+        ))], label: L10n.undoProposeLearning) else { return false }
+        return true
+    }
+
+    /// Opens the experiment card for an object's newest experiment.
+    @discardableResult
+    public func openExperiment(on objectID: ObjectID) -> ExperimentID? {
+        guard let experiment = experiments(on: objectID).last else { return nil }
+        openExperimentID = experiment.id
+        return experiment.id
     }
 
     /// The claim made on an object, if there is one.
@@ -2301,6 +3023,15 @@ public final class KollioModel {
             progress = nil
             lastRequest = request
             handle(response, anchor: id, requestId: request.requestId)
+            // An answer produced from part of the request says so on the status
+            // line, and not only inside a panel the person has to ask for: the
+            // scope of an answer is part of the answer. It never overwrites a more
+            // important status such as a refusal.
+            if status == nil,
+               let scope = response.proposal?.contextScope,
+               scope.isNarrowed {
+                status = L10n.statusContextNarrowed(scope.omittedObjectIDs.count)
+            }
             return true
         } catch is CancellationError {
             // A cancelled request publishes nothing. The draft and the context
@@ -2465,21 +3196,28 @@ public final class KollioModel {
     /// would overlap an existing one is pushed down until the document stays
     /// readable.
     /// What was read, taken from the request rather than rebuilt from the document.
-    private var readRefs: [ProposalInputRef] {
+    private func readRefs(for scope: ProposalContextScope?) -> [ProposalInputRef] {
         guard let request = lastRequest else { return [] }
+        // What was read, taken from the request rather than rebuilt from the
+        // document, and then narrowed to what the source actually sent. A list
+        // read off the request alone would claim credit for material the model
+        // never saw, which is the one claim this list must not make.
+        let sent = scope.map { Set($0.readObjectIDs) }
         return ProposalInputRef.resolveAll(
-            request.context.map { item in
-                (
-                    id: item.objectID.rawValue,
-                    kind: ProposalInputRef.Kind.object,
-                    // A label, never the content: a proposal that copied the text of
-                    // a source into its own record would be a copy of somebody's
-                    // document living where it was not asked to be.
-                    label: item.text.count > 90
-                        ? String(item.text.prefix(90)) + "…"
-                        : item.text
-                )
-            },
+            request.context
+                .filter { sent?.contains($0.objectID) ?? true }
+                .map { item in
+                    (
+                        id: item.objectID.rawValue,
+                        kind: ProposalInputRef.Kind.object,
+                        // A label, never the content: a proposal that copied the text of
+                        // a source into its own record would be a copy of somebody's
+                        // document living where it was not asked to be.
+                        label: item.text.count > 90
+                            ? String(item.text.prefix(90)) + "…"
+                            : item.text
+                    )
+                },
             in: document
         )
     }
@@ -2543,7 +3281,7 @@ public final class KollioModel {
             anchorID: anchor,
             rationale: reason,
             summary: proposal.summary.resolve(languageCode: languageCode),
-            readRefs: readRefs
+            readRefs: readRefs(for: proposal.contextScope)
         )
     }
 
@@ -2584,7 +3322,7 @@ public final class KollioModel {
     /// transaction that undo restores as a whole.
     public func keepPreview() {
         guard let preview else { return }
-        session.apply(
+        let kept = apply(
             [.applyProposal(ApplyProposal(
                 proposal: preview.proposal,
                 placements: preview.placements,
@@ -2592,6 +3330,10 @@ public final class KollioModel {
             ))],
             label: L10n.undoKeepProposal
         )
+        // The confirmation follows the command and not the other way round. This
+        // used to say "kept" whatever happened, which during a presentation would
+        // have replaced the refusal with a lie.
+        guard kept else { return }
         self.preview = nil
         status = L10n.statusKept
     }
@@ -2619,7 +3361,7 @@ public final class KollioModel {
             rationale: reason.map { LocalizedText($0) },
             provenance: .human("local-user")
         ))
-        guard session.apply([command], label: L10n.undoSetAside) else {
+        guard apply([command], label: L10n.undoSetAside) else {
             status = L10n.errorGeneric
             return
         }
@@ -2636,7 +3378,7 @@ public final class KollioModel {
             targetObjectID: id,
             provenance: .human("local-user")
         ))
-        guard session.apply([command], label: L10n.undoReopen) else {
+        guard apply([command], label: L10n.undoReopen) else {
             status = L10n.errorGeneric
             return
         }
@@ -2715,7 +3457,7 @@ public final class KollioModel {
             provenance: .human("local-user"),
             expectedVersion: expectedVersion
         ))
-        guard session.apply([command], label: L10n.undoEdit) else {
+        guard apply([command], label: L10n.undoEdit) else {
             // The refusal is about the text, not about the application, so it is
             // reported as such. The draft is still in the composer.
             status = L10n.errorEditConflict
@@ -2772,6 +3514,13 @@ public final class KollioModel {
 
     /// A new document gets its own file, so saving it can never overwrite the
     /// document that was open before.
+    /// The same thing, for a test that needs two documents on disk.
+    ///
+    /// A launch gives a new document its own file so saving it cannot destroy the
+    /// previous one, and proving that needs to do the same without going through
+    /// the interface.
+    func adoptNewSaveTargetForTest() { adoptNewSaveTarget() }
+
     private func adoptNewSaveTarget() {
         let name = "Kollio-\(Self.shortStamp())"
         documentURL = fileStore.url(named: name)
@@ -2810,9 +3559,139 @@ public final class KollioModel {
         case "reopened":
             setAside(csv, reason: reviewReason)
             reopen(csv)
+        // AI-12: the two states a budget produces, which no other review state can
+        // reach because Sarah is far too small to hit the window.
+        case "narrowed":
+            loadReviewDocument(largeContext: true)
+            selection = [Self.reviewTarget]
+            await explore(Self.reviewTarget)
+            // The panel is what names the scope, and opening it from a capture is
+            // the only way it has ever been seen. It stays closed for a person.
+            showsProposalAttribution = true
+            frameOnReviewTarget()
+        case "toobig":
+            loadReviewDocument(largeContext: false)
+            selection = [Self.reviewTarget]
+            await explore(Self.reviewTarget)
+            frameOnReviewTarget()
+        // CAN-10: the tour, and the tour after two steps, so a capture can show
+        // both "1 of n" and the fact that the view moved with it.
+        case "presenting", "presentingmid":
+            loadDemo()
+            fitContent()
+            beginPresentation()
+            if review == "presentingmid" {
+                advancePresentation()
+                advancePresentation()
+            }
+        case "search", "searchreason":
+            loadDemo()
+            fitContent()
+            // Two states, because the two halves of CAN-09 look nothing alike on a
+            // screen: a result that is on the canvas, and a reason somebody wrote
+            // for a direction that was set aside.
+            if review == "searchreason" {
+                setAside(KollioID.object("sarah-crm"), reason: reviewSearchReason)
+            }
+            selection = [KollioID.object("sarah-crm")]
+            openSearch()
+            // "budget" is the one word that reads the same in both languages, so
+            // the state is reachable whichever the interface is in.
+            updateSearch(review == "searchreason" ? "budget" : "export")
         default:
             break
         }
+    }
+
+    private static let reviewTarget = ObjectID("object:review-context")
+
+    private func loadReviewDocument(largeContext: Bool) {
+        session = KollioSession(document: Self.reviewDocument(largeContext: largeContext))
+        frames = [:]
+        preview = nil
+        composer = nil
+        loadFailure = nil
+        adoptNewSaveTarget()
+    }
+
+    /// Framed on the target rather than on the content, and called after the
+    /// request rather than before it.
+    ///
+    /// Two reasons, both learned from a capture that showed nothing. A document
+    /// this size is zoomed out until nothing can be read, and the canvas frames the
+    /// whole content when it appears, which happens while the request is still in
+    /// flight. The target is what the answer is about, so it is what is framed.
+    private func frameOnReviewTarget() {
+        camera = Camera(
+            zoom: 0.8,
+            translation: Position(x: 140, y: viewport.height * 0.2)
+        )
+    }
+
+    /// A document whose context does not fit the model's window.
+    ///
+    /// `largeContext` decides which of the two budget outcomes is reachable: three
+    /// neighbours that together overflow a real 8192-token window, so an answer is
+    /// produced from part of it, or one neighbour larger than that window on its own,
+    /// so the request is refused. Both are states the app has to reach honestly, and
+    /// neither can be produced by a document small enough to read at a glance.
+    static func reviewDocument(largeContext: Bool) -> KollioDocument {
+        var builder = DocumentBuilder()
+        if largeContext {
+            let target = builder.object(
+                "review-context", kind: .context,
+                "Should billing stay on the first screen of the signup?",
+                en: "Should billing stay on the first screen of the signup?",
+                at: .zero
+            )!
+            // Each neighbour is well under the window and together they are past it,
+            // so what is left out is optional material and an answer is still
+            // possible. They sit well to the right, not around the target: a
+            // proposed branch is placed clear of what is already on the canvas, and
+            // three nodes this long standing next to the target would push it off
+            // the screen, which is where the answer has to be visible.
+            for index in 0..<3 {
+                let id = builder.object(
+                    "review-n\(index)", kind: .hypothesis,
+                    Self.reviewText(index), en: Self.reviewText(index),
+                    at: Position(x: 3_000, y: Double(index) * 2_400)
+                )!
+                _ = builder.link("review-l\(index)", from: target, to: id, .alternativeTo)
+            }
+        } else {
+            // The target itself is larger than the whole window. Nothing here is
+            // optional, because the target is what was asked about, so this is
+            // refused rather than answered around: a shorter answer about something
+            // else is not an answer.
+            _ = builder.object(
+                "review-context", kind: .constraint,
+                String(repeating: "Billing must not be a requirement before the trial. ", count: 400),
+                en: String(repeating: "Billing must not be a requirement before the trial. ", count: 400),
+                at: Position(x: 0, y: 0)
+            )
+        }
+        return builder.document
+    }
+
+    private static func reviewText(_ index: Int) -> String {
+        let seeds = [
+            "The first screen measures three screens converted, and two hundred per cent of the abandonments happen there.",
+            "The second screen loses half of whoever is left, and almost nobody sees it happen.",
+            "The third screen is the only one people look at on their own in a usability test.",
+        ]
+        let seed = seeds[index % seeds.count]
+        // Repeated so the payload is genuinely large, rather than a sentence that
+        // happens to be long. The point is the budget, not the prose.
+        return ([seed] + (0..<40).map { "\($0). \(seed)" }).joined(separator: " ")
+    }
+
+    /// A reason that carries the word the review state searches for, in the
+    /// language being read. The generic review reason is about API access, and
+    /// searching for "budget" in it would find nothing and prove nothing.
+    private var reviewSearchReason: String {
+        languageCode == "fr"
+            ? "Pas de budget pour l'API avant mars"
+            : "No budget for the API before March"
     }
 
     private var reviewReason: String {
@@ -2846,8 +3725,129 @@ public final class KollioModel {
         }
     }
 
+    /// Changes both the versioned document title and its local registry name.
+    /// The previous file is removed only after the renamed document is safely
+    /// written, so a failed save can never cost the user their document.
+    @discardableResult
+    public func renameDocument(to title: String) -> Bool {
+        let previousSession = session
+        let previousURL = documentURL
+        let targetURL = fileStore.availableURL(named: title, excluding: previousURL)
+
+        guard apply([.renameDocument(.init(
+            title: title,
+            provenance: .human("owner")
+        ))], label: L10n.undoRenameDocument) else {
+            return false
+        }
+
+        do {
+            try fileStore.save(document, to: targetURL)
+            documentURL = targetURL
+            if previousURL.standardizedFileURL != targetURL.standardizedFileURL,
+               FileManager.default.fileExists(atPath: previousURL.path) {
+                try FileManager.default.removeItem(at: previousURL)
+            }
+            status = L10n.statusSaved
+            return true
+        } catch {
+            session = previousSession
+            try? FileManager.default.removeItem(at: targetURL)
+            documentURL = previousURL
+            status = L10n.errorSaveFailed
+            return false
+        }
+    }
+
+    /// Creates a fully independent copy and makes that copy the active document.
+    /// The source file is never moved or rewritten.
+    @discardableResult
+    public func duplicateDocument(named title: String) -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else {
+            status = L10n.errorGeneric
+            return false
+        }
+
+        do {
+            let duplicate = try DocumentDuplicator.duplicate(document, title: trimmed)
+            let targetURL = fileStore.availableURL(named: trimmed)
+            try fileStore.save(duplicate, to: targetURL)
+            session = KollioSession(document: duplicate)
+            documentURL = targetURL
+            selection = []
+            preview = nil
+            composer = nil
+            status = L10n.statusSaved
+            return true
+        } catch {
+            status = L10n.errorSaveFailed
+            return false
+        }
+    }
+
+    /// The scope the export commands act on: the selection when there is one,
+    /// the whole document otherwise. Every export format takes the same scope, so
+    /// two formats can never quietly disagree about what is being handed over.
+    public func exportScope() -> DocumentExportScope {
+        selection.isEmpty ? .document : .objects(selection)
+    }
+
+    /// Freezes the scope once. Markdown, PNG and the asset archive are all
+    /// rendered from this, which is what makes the export match the preview.
+    public func exportSnapshot() -> DocumentExportSnapshot {
+        DocumentExporter.snapshot(of: document, scope: exportScope())
+    }
+
+    public func exportPortableDocument() -> KollioDocument {
+        DocumentExporter.portableDocument(from: document, scope: exportScope())
+    }
+
+    /// The assets the exported scope depends on. Whether a file is still on the
+    /// machine is checked here, because the plan is a claim about the disk and
+    /// not only about the document.
+    public func exportAssetPlan() -> [AssetArchiveEntry] {
+        let candidates = document.sources.sources.values
+            .map(\.locator)
+            .filter { $0.isEmpty == false }
+        let existing = Set(candidates.filter { FileManager.default.fileExists(atPath: $0) })
+        return DocumentExporter.assetPlan(for: document, scope: exportScope(), existingPaths: existing)
+    }
+
+    /// Writes the asset archive and says what it managed to carry.
+    @discardableResult
+    public func archiveExportAssets(into parent: URL) -> Bool {
+        let plan = exportAssetPlan()
+        guard plan.isEmpty == false else {
+            status = L10n.assetsArchiveEmpty
+            return false
+        }
+        do {
+            let result = try AssetArchiver.archive(
+                plan: plan,
+                into: parent,
+                named: document.title + " " + L10n.assetsArchiveSuffix
+            )
+            status = L10n.assetsArchived(
+                copied: result.copied.count,
+                missing: result.skipped.count
+            )
+            return true
+        } catch {
+            status = L10n.errorSaveFailed
+            return false
+        }
+    }
+
     @discardableResult
     public func save() -> Bool {
+        // An empty document is not written. There is nothing in it to keep, and
+        // writing it is what created the file that then shadowed every real
+        // document on the machine. A save that reports success and leaves an empty
+        // file behind is not a save, whatever the button says.
+        guard document.content.isEmpty == false else {
+            return true
+        }
         do {
             try fileStore.save(document, to: documentURL)
             status = L10n.statusSaved
@@ -2861,6 +3861,11 @@ public final class KollioModel {
     /// Simulates the full cycle: save, close, reopen.
     public func reloadFromDisk() {
         guard let reloaded = try? fileStore.load(documentURL) else { return }
+        // The new session reads the reloaded document, and establishes its own
+        // replay base from it. The base is where *this* session started, so a
+        // reload does not move it: a preview of the first action must still show
+        // the document as it was before that action, not a finished document with
+        // the whole history replayed on top.
         session = KollioSession(document: reloaded)
         frames = [:]
         selection = []

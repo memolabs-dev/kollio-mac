@@ -16,6 +16,11 @@ struct CanvasView: View {
         GeometryReader { proxy in
             ZStack(alignment: .topLeading) {
                 theme.canvasBackground
+                CanvasGroundLayer(
+                    camera: model.camera,
+                    visibleWorld: visibleWorld(proxy.size),
+                    dotColor: theme.borderDecorative
+                )
                 RelationshipLayer(model: model)
                 worldLayer
                 screenSpaceLayer(viewport: proxy.size)
@@ -44,6 +49,12 @@ struct CanvasView: View {
                     model.recordFrame(Rect(origin: origin, size: Size(width: size.width, height: size.height)), for: objectID)
                 }
             }
+            // A container, not a merge. Without `contain` the canvas becomes one
+            // element that absorbs its children's identifiers, and two elements end
+            // up answering to the same name, which is worse than no name at all:
+            // a test asking for "the canvas" would get whichever came first.
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(AXID.canvas)
             .onAppear {
                 model.viewport = Size(width: proxy.size.width, height: proxy.size.height)
                 if model.isEmpty == false { model.fitContent() }
@@ -167,6 +178,17 @@ struct CanvasView: View {
 
     // MARK: - Screen-space layer
 
+    /// The part of the document the camera currently shows, in world points.
+    private func visibleWorld(_ viewport: CGSize) -> CGRect {
+        let rect = model.camera.visibleWorldRect(viewport: Size(width: viewport.width, height: viewport.height))
+        return CGRect(
+            x: rect.origin.x,
+            y: rect.origin.y,
+            width: rect.size.width,
+            height: rect.size.height
+        )
+    }
+
     /// Controls that must not scale with the camera: contextual actions, the
     /// inline composer, and the proposal decision.
     @ViewBuilder
@@ -201,6 +223,14 @@ struct CanvasView: View {
                 ClaimComposerView(model: model)
                     .position(composerPosition(draft.anchor, viewport: viewport))
             }
+            if model.experimentDraft != nil, let draft = model.experimentDraft {
+                ExperimentComposerView(model: model)
+                    .position(composerPosition(draft.anchor, viewport: viewport))
+            }
+            if let anchor = model.resultDraftAnchor, model.resultDraft != nil {
+                ResultComposerView(model: model)
+                    .position(composerPosition(anchor, viewport: viewport))
+            }
             if let anchor = model.primarySelection, model.selection.count == 1,
                model.stanceDraft == nil, model.claimSummary(for: anchor) != nil {
                 ClaimStanceView(model: model, anchor: anchor)
@@ -213,6 +243,14 @@ struct CanvasView: View {
             // Above the citations it was opened from, and below nothing else: it is
             // the most specific thing on screen, because it is about one claim and
             // the objects that explicitly depend on it.
+            if let id = model.openExperimentID {
+                ExperimentCardView(model: model, id: id)
+                    .position(comparisonPosition(viewport: viewport))
+            }
+            if let anchor = model.openHistoryID {
+                HistoryTimelineView(model: model, anchor: anchor)
+                    .position(comparisonPosition(viewport: viewport))
+            }
             if let id = model.openComparison {
                 ComparisonView(model: model, id: id)
                     .position(comparisonPosition(viewport: viewport))
@@ -227,6 +265,19 @@ struct CanvasView: View {
             if let id = model.renamingFrameID {
                 FrameNameView(model: model, id: id)
                     .position(frameNamePosition(id, viewport: viewport))
+            }
+            // The search is about the whole document rather than about a
+            // selection, so it sits in the middle of the view and above the cards
+            // that are about one thing.
+            if let state = model.search {
+                SearchCardView(model: model, state: state)
+                    .position(searchPosition(viewport: viewport))
+            }
+            // The tour card sits at the bottom of the view, opposite the search and
+            // clear of the centre where the step being read is.
+            if let session = model.presentation {
+                PresentationView(model: model, session: session)
+                    .position(presentationPosition(viewport: viewport))
             }
             if let assessment = model.impactAssessment,
                let anchor = model.impactReviewAnchor {
@@ -332,8 +383,21 @@ struct CanvasView: View {
         return CGPoint(x: base.x, y: max(150, base.y - 200))
     }
 
-    private func summaryPosition(viewport: CGSize) -> CGPoint {
-        CGPoint(x: min(max(260, viewport.width / 2 - 520) + 440, viewport.width - 240),
+    /// The search card sits in the upper left rather than in the middle, because
+    /// the middle is where the object it reveals is. A card that covers the thing
+    /// it just brought into view is a card that has to be moved before it can be
+    /// read. Clamped so it stays reachable in a narrow window.
+    private func searchPosition(viewport: CGSize) -> CGPoint {
+        CGPoint(x: min(max(230, viewport.width * 0.16), viewport.width - 230),
+                y: min(max(110, viewport.height * 0.10), viewport.height - 220))
+    }
+
+    private func presentationPosition(viewport: CGSize) -> CGPoint {
+        CGPoint(x: min(max(210, viewport.width / 2 - 220), viewport.width - 210),
+                y: min(max(300, viewport.height - 150), viewport.height - 90))
+    }
+
+    private func summaryPosition(viewport: CGSize) -> CGPoint {        CGPoint(x: min(max(260, viewport.width / 2 - 520) + 440, viewport.width - 240),
                 y: min(max(320, viewport.height / 2) + 40, viewport.height - 320))
     }
 
@@ -489,6 +553,7 @@ struct ProposalProgressView: View {
                 }
                 if let rationale = progress.rationale {
                     Text(rationale)
+                        .accessibilityIdentifier(AXID.progress)
                         .font(TypeScale.body)
                         .foregroundStyle(theme.textPrimary)
                         .lineLimit(3)
@@ -534,6 +599,7 @@ struct StatusView: View {
         VStack {
             Spacer()
             Text(text)
+                .accessibilityIdentifier(AXID.status)
                 .font(TypeScale.metadata)
                 .foregroundStyle(theme.textSecondary)
                 .padding(.horizontal, Space.m)
