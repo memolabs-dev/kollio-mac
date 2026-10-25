@@ -117,8 +117,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// notification is the last chance for the other paths. Neither one reports
     /// success unless `save()` actually returned true.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        MainActor.assumeIsolated { saveOnQuit() }
-        return .terminateNow
+        MainActor.assumeIsolated {
+            // Native Cmd+Q bypasses per-window windowShouldClose. Never let
+            // window-local unfinished drafts silently disappear on quit.
+            guard SpatialNativeCloseGuard.confirmQuitIfNeeded() else {
+                return .terminateCancel
+            }
+            saveOnQuit()
+            return .terminateNow
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

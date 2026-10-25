@@ -6,13 +6,19 @@ import KollioCore
 /// Full kinds and relationship kinds remain unchanged, even when the V3
 /// renderer cannot yet display their richer meanings.
 struct SpatialDocumentProjection {
+    struct Occurrence: Equatable {
+        let id: String
+        let position: Position
+        let isHidden: Bool
+    }
     struct Node: Identifiable, Equatable {
         let id: String
         let kind: String
         let label: String
         let detail: String?
         let isSetAside: Bool
-        let authoredPositions: [Position]
+        let occurrences: [Occurrence]
+        var authoredPositions: [Position] { occurrences.map(\.position) }
     }
     struct Edge: Identifiable, Equatable {
         let id: String
@@ -31,6 +37,7 @@ struct SpatialDocumentProjection {
         documentID = document.documentId
         revision = document.revision
         semanticRevision = document.semanticRevision
+        let folded = Set(document.presentation.frames.filter(\.isFolded).flatMap(\.memberInstanceIDs))
         nodes = document.content.values.sorted { $0.id.rawValue < $1.id.rawValue }.map { object in
             Node(
                 id: object.id.rawValue,
@@ -38,9 +45,16 @@ struct SpatialDocumentProjection {
                 label: object.text.resolve(languageCode: languageCode),
                 detail: object.detail?.resolve(languageCode: languageCode),
                 isSetAside: object.isSetAside,
-                authoredPositions: document.presentation.instances
+                occurrences: document.presentation.instances
                     .filter { $0.objectID == object.id }
-                    .map(\.position)
+                    .sorted { $0.id.rawValue < $1.id.rawValue }
+                    .map { instance in
+                        Occurrence(
+                            id: instance.id.rawValue,
+                            position: instance.position,
+                            isHidden: instance.hidden || folded.contains(instance.id)
+                        )
+                    }
             )
         }
         edges = document.relationships.values.sorted { $0.id.rawValue < $1.id.rawValue }.map { relation in

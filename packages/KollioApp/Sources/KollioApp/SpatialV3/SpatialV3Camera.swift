@@ -35,7 +35,57 @@ struct SpatialV3Camera: Equatable {
         )
     }
 
+    /// Explicit focus. Selecting a card in place does not call this method.
+    func centered(on point: CGPoint, in viewport: CGSize) -> SpatialV3Camera {
+        SpatialV3Camera(
+            zoom: zoom,
+            x: viewport.width / 2 - point.x * zoom,
+            y: viewport.height / 2 - point.y * zoom
+        )
+    }
+
     func panned(dx: CGFloat, dy: CGFloat) -> SpatialV3Camera {
         SpatialV3Camera(zoom: zoom, x: x + dx, y: y + dy)
+    }
+}
+
+
+/// SwiftUI's gesture-state preview carries both the total factor and the
+/// screen point where two fingers started. A cancelled gesture resets to nil.
+struct SpatialPinchPreview: Equatable {
+    let magnification: CGFloat
+    let anchor: CGPoint
+
+    init(magnification: CGFloat, unitAnchor: CGPoint, viewport: CGSize) {
+        self.magnification = magnification
+        self.anchor = CGPoint(
+            x: unitAnchor.x * viewport.width,
+            y: unitAnchor.y * viewport.height
+        )
+    }
+}
+
+/// Pinch magnification is relative to the *start* of its own gesture.
+/// Apply the same pure calculation during an ephemeral @GestureState preview
+/// and once on release. Cancellation therefore cannot retain a stale delta.
+enum SpatialPinchTransaction {
+    static func camera(
+        from baseline: SpatialV3Camera,
+        magnification: CGFloat,
+        viewport: CGSize,
+        anchor: CGPoint? = nil,
+        allowed: Bool
+    ) -> SpatialV3Camera {
+        guard allowed, magnification.isFinite, magnification > 0,
+              viewport.width.isFinite, viewport.height.isFinite,
+              viewport.width > 0, viewport.height > 0 else { return baseline }
+        let focalPoint = anchor ?? CGPoint(
+            x: viewport.width / 2, y: viewport.height / 2
+        )
+        guard focalPoint.x.isFinite, focalPoint.y.isFinite,
+              (0...viewport.width).contains(focalPoint.x),
+              (0...viewport.height).contains(focalPoint.y)
+        else { return baseline }
+        return baseline.zoomed(by: magnification, around: focalPoint)
     }
 }

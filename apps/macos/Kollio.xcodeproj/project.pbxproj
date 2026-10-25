@@ -34,6 +34,16 @@
 		4DAFF2352F8ECB94CC937E42 /* CSVTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1890109BA63EC19403BA959 /* CSVTable.swift */; };
 		534AD1AD15A5AAF4241E7484 /* SourcePreviewPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8EAE57F4CA04F29987C9D5E /* SourcePreviewPanel.swift */; };
 		7D3B1C69F370518572309708 /* SourceReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E6F7FA74392B6E7F0D3C7EA /* SourceReader.swift */; };
+		4C89E63C4F20B6BFB140F6EF /* KollioTokens.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0BE5CE1860617818A393B05 /* KollioTokens.generated.swift */; };
+		248CAF1D05D12994ABEF753C /* SpatialDocumentEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06187EB19D9754FBA1310888 /* SpatialDocumentEditor.swift */; };
+		26444A9DC152CED6E9285A55 /* SpatialDocumentProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 691C37A593E25D03ADEFBEC0 /* SpatialDocumentProjection.swift */; };
+		33F480DD1E07E73D8105D926 /* SpatialDocumentScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25E429DC8C17FFE61FE14B0F /* SpatialDocumentScene.swift */; };
+		8B95F86B72A9D3789F6DFEA0 /* SpatialNativeCloseGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B965D72DD1D5B930EF371FF /* SpatialNativeCloseGuard.swift */; };
+		41823701B804D246D171B480 /* SpatialTrackpadScrollCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92C8E84A0F7AF56F5C4C4D7E /* SpatialTrackpadScrollCapture.swift */; };
+		2EFBA7FB0C51ED87404E4B60 /* SpatialV3Camera.swift in Sources */ = {isa = PBXBuildFile; fileRef = C744EA6A2C7F0E25B6D3975C /* SpatialV3Camera.swift */; };
+		D75C22B0D4E3D711F22AA6D8 /* SpatialV3Fixture.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC5D747BB9353347C50A1D73 /* SpatialV3Fixture.generated.swift */; };
+		9477666EC40C39D0B41E80C0 /* SpatialV3Stress.generated.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADA613388DFB387861DE4E79 /* SpatialV3Stress.generated.swift */; };
+		93D3B30C8044721F75FB8A31 /* SpatialV3Window.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7BB21C8C6B5291AD333E30F /* SpatialV3Window.swift */; };
 		C48C4FF8CD106E48C1CC74F1 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8A4724B06916EE6A9F73228F /* Localizable.xcstrings */; };
 		26C70343164791EB7E0D636E /* KollioCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8F00A5AE310737084590BBD6 /* KollioCore */; };
 		862E11B013B7E3490389CCC2 /* Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = B34B0507FE00BF36365A62E0 /* Info.plist */; };
@@ -67,6 +77,16 @@
 		C1890109BA63EC19403BA959 /* CSVTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CSVTable.swift; path = ../../packages/KollioApp/Sources/KollioApp/Sources/CSVTable.swift; sourceTree = SOURCE_ROOT; };
 		A8EAE57F4CA04F29987C9D5E /* SourcePreviewPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SourcePreviewPanel.swift; path = ../../packages/KollioApp/Sources/KollioApp/Sources/SourcePreviewPanel.swift; sourceTree = SOURCE_ROOT; };
 		4E6F7FA74392B6E7F0D3C7EA /* SourceReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SourceReader.swift; path = ../../packages/KollioApp/Sources/KollioApp/Sources/SourceReader.swift; sourceTree = SOURCE_ROOT; };
+		C0BE5CE1860617818A393B05 /* KollioTokens.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = KollioTokens.generated.swift; path = ../../packages/KollioApp/Sources/KollioApp/SpatialV3/KollioTokens.generated.swift; sourceTree = SOURCE_ROOT; };
+		06187EB19D9754FBA1310888 /* SpatialDocumentEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SpatialDocumentEditor.swift; path = ../../packages/KollioApp/Sources/KollioApp/SpatialV3/SpatialDocumentEditor.swift; sourceTree = SOURCE_ROOT; };
+		691C37A593E25D03ADEFBEC0 /* SpatialDocumentProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SpatialDocumentProjection.swift; path = ../../packages/KollioApp/Sources/KollioApp/SpatialV3/SpatialDocumentProjection.swift; sourceTree = SOURCE_ROOT; };
+		25E429DC8C17FFE61FE14B0F /* SpatialDocumentScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SpatialDocumentScene.swift; path = ../../packages/KollioApp/Sources/KollioApp/SpatialV3/SpatialDocumentScene.swift; sourceTree = SOURCE_ROOT; };
+		3B965D72DD1D5B930EF371FF /* SpatialNativeCloseGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SpatialNativeCloseGuard.swift; path = ../../packages/KollioApp/Sources/KollioApp/SpatialV3/SpatialNativeCloseGuard.swift; sourceTree = SOURCE_ROOT; };
+		92C8E84A0F7AF56F5C4C4D7E /* SpatialTrackpadScrollCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SpatialTrackpadScrollCapture.swift; path = ../../packages/KollioApp/Sources/KollioApp/SpatialV3/SpatialTrackpadScrollCapture.swift; sourceTree = SOURCE_ROOT; };
+		C744EA6A2C7F0E25B6D3975C /* SpatialV3Camera.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SpatialV3Camera.swift; path = ../../packages/KollioApp/Sources/KollioApp/SpatialV3/SpatialV3Camera.swift; sourceTree = SOURCE_ROOT; };
+		CC5D747BB9353347C50A1D73 /* SpatialV3Fixture.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SpatialV3Fixture.generated.swift; path = ../../packages/KollioApp/Sources/KollioApp/SpatialV3/SpatialV3Fixture.generated.swift; sourceTree = SOURCE_ROOT; };
+		ADA613388DFB387861DE4E79 /* SpatialV3Stress.generated.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SpatialV3Stress.generated.swift; path = ../../packages/KollioApp/Sources/KollioApp/SpatialV3/SpatialV3Stress.generated.swift; sourceTree = SOURCE_ROOT; };
+		C7BB21C8C6B5291AD333E30F /* SpatialV3Window.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SpatialV3Window.swift; path = ../../packages/KollioApp/Sources/KollioApp/SpatialV3/SpatialV3Window.swift; sourceTree = SOURCE_ROOT; };
 		8A4724B06916EE6A9F73228F /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; name = Localizable.xcstrings; path = ../../packages/KollioApp/Sources/KollioApp/Resources/Localizable.xcstrings; sourceTree = SOURCE_ROOT; };
 		B34B0507FE00BF36365A62E0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		F5BF48AA40CAD7891EB709FC /* Kollio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Kollio.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -96,6 +116,7 @@
 				D2698074F197869D93E6D480 /* Networking */,
 				5CB925814CB9D325B98F666D /* Resources */,
 				0E2C2D148CD03FDE80E5926A /* Sources */,
+				4F2FBE91E4609A90C4BD853B /* SpatialV3 */,
 				B34B0507FE00BF36365A62E0 /* Info.plist */,
 				C863DA5204F95EC573510473 /* Products */,
 			);
@@ -232,6 +253,23 @@
 			name = Sources;
 			sourceTree = "<group>";
 		};
+		4F2FBE91E4609A90C4BD853B /* SpatialV3 */ = {
+			isa = PBXGroup;
+			children = (
+				C0BE5CE1860617818A393B05 /* KollioTokens.generated.swift */,
+				06187EB19D9754FBA1310888 /* SpatialDocumentEditor.swift */,
+				691C37A593E25D03ADEFBEC0 /* SpatialDocumentProjection.swift */,
+				25E429DC8C17FFE61FE14B0F /* SpatialDocumentScene.swift */,
+				3B965D72DD1D5B930EF371FF /* SpatialNativeCloseGuard.swift */,
+				92C8E84A0F7AF56F5C4C4D7E /* SpatialTrackpadScrollCapture.swift */,
+				C744EA6A2C7F0E25B6D3975C /* SpatialV3Camera.swift */,
+				CC5D747BB9353347C50A1D73 /* SpatialV3Fixture.generated.swift */,
+				ADA613388DFB387861DE4E79 /* SpatialV3Stress.generated.swift */,
+				C7BB21C8C6B5291AD333E30F /* SpatialV3Window.swift */,
+			);
+			name = SpatialV3;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -332,6 +370,16 @@
 				4DAFF2352F8ECB94CC937E42 /* CSVTable.swift in Sources */,
 				534AD1AD15A5AAF4241E7484 /* SourcePreviewPanel.swift in Sources */,
 				7D3B1C69F370518572309708 /* SourceReader.swift in Sources */,
+				4C89E63C4F20B6BFB140F6EF /* KollioTokens.generated.swift in Sources */,
+				248CAF1D05D12994ABEF753C /* SpatialDocumentEditor.swift in Sources */,
+				26444A9DC152CED6E9285A55 /* SpatialDocumentProjection.swift in Sources */,
+				33F480DD1E07E73D8105D926 /* SpatialDocumentScene.swift in Sources */,
+				8B95F86B72A9D3789F6DFEA0 /* SpatialNativeCloseGuard.swift in Sources */,
+				41823701B804D246D171B480 /* SpatialTrackpadScrollCapture.swift in Sources */,
+				2EFBA7FB0C51ED87404E4B60 /* SpatialV3Camera.swift in Sources */,
+				D75C22B0D4E3D711F22AA6D8 /* SpatialV3Fixture.generated.swift in Sources */,
+				9477666EC40C39D0B41E80C0 /* SpatialV3Stress.generated.swift in Sources */,
+				93D3B30C8044721F75FB8A31 /* SpatialV3Window.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
