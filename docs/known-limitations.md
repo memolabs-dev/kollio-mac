@@ -319,3 +319,7 @@ Everything in the non-goals, and also, honestly:
   wrong.
 - **No web renderer, no public SDK, no standard.** Intentional.
 - **No accounts, no payments, no marketplace, no collaboration.** Intentional.
+
+## Screenshot privacy gate (25 October 2026)
+
+The old `run-app.sh --shot` saved the whole display and could include the wrong foreground app. The new script uses ScreenCaptureKit and **only** captures exactly one window whose owner has bundle ID `dev.kollio.app`. It fails closed on missing TCC/Screen Recording permission, zero/multiple windows and capture failure. A successful PNG still requires visual inspection to demonstrate correct product content. The independent clean-user journey and product video are still **unverified**. See issue #30.
