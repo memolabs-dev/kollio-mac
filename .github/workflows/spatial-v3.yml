@@ -6,6 +6,8 @@ on:
       - 'packages/KollioApp/Sources/KollioApp/App/KollioApp.swift'
       - 'packages/KollioApp/Tests/KollioAppTests/Spatial*'
       - '.github/workflows/spatial-v3.yml'
+      - 'apps/macos/Kollio.xcodeproj/**'
+      - 'scripts/sync-xcodeproj.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,7 +17,28 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Verify Xcode project source list is current
+        run: |
+          python3 scripts/sync-xcodeproj.py
+          git diff --exit-code -- apps/macos/Kollio.xcodeproj
+      - name: Build native macOS app target
+        run: xcodebuild -quiet -project apps/macos/Kollio.xcodeproj -scheme Kollio -configuration Debug -destination 'platform=macOS' build
       - name: Validate native package
         run: swift build --package-path packages/KollioApp
       - name: Validate native spatial and document projection
         run: swift test --package-path packages/KollioApp --filter Spatial
+      - name: Exercise native close and reopen journey
+        env:
+          KOLLIO_SPATIAL_C34_NATIVE: '1'
+        run: swift test --package-path packages/KollioApp --filter SpatialNativeWindowJourneyTests
+      - name: Exercise native two-finger canvas scroll in isolated test process
+        env:
+          KOLLIO_SPATIAL_C36_NATIVE: '1'
+        # AppKit window fixtures must not share a Swift Testing process after
+        # teardown on a headless macOS runner, even with --no-parallel.
+        run: swift test --package-path packages/KollioApp --filter realViewportScrollRouting --no-parallel
+      - name: Exercise compact selected-card actions in isolated test process
+        env:
+          KOLLIO_SPATIAL_C29_LANGUAGE: 'en'
+          KOLLIO_SPATIAL_C38_CAPTURE: ${{ runner.temp }}/kollio-c38-compact-en.png
+        run: swift test --package-path packages/KollioApp --filter compactSelectedActions --no-parallel
