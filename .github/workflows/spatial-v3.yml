@@ -1,14 +1,7 @@
 name: Spatial Ink Native Validation
 on:
-  pull_request:
-    paths:
-      - 'packages/KollioApp/Sources/KollioApp/SpatialV3/**'
-      - 'packages/KollioApp/Sources/KollioApp/App/KollioApp.swift'
-      - 'packages/KollioApp/Tests/KollioAppTests/Spatial*'
-      - '.github/workflows/spatial-v3.yml'
-      - 'apps/macos/Kollio.xcodeproj/**'
-      - 'scripts/sync-xcodeproj.py'
   workflow_dispatch:
+
 permissions:
   contents: read
 jobs:
