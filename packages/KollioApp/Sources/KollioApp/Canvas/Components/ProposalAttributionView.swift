@@ -35,6 +35,9 @@ struct ProposalAttributionView: View {
             if proposal.limitations.isEmpty == false {
                 limitationsRow
             }
+            if let scopeSummary = Self.scopeSummary(for: proposal) {
+                scopeRow(scopeSummary)
+            }
             if readRefs.isEmpty == false {
                 readRow
             }
@@ -110,6 +113,28 @@ struct ProposalAttributionView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private func scopeRow(_ summary: String) -> some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Text(L10n.proposalScopeTitle)
+                .font(TypeScale.metadata.weight(.semibold))
+                .foregroundStyle(theme.textSecondary)
+            Text(summary)
+                .font(TypeScale.metadata)
+                .foregroundStyle(theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// The scope is rendered from recorded counts, never reconstructed from the
+    /// current document. A document may have moved since the answer, while what
+    /// the model saw cannot move retroactively.
+    static func scopeSummary(for proposal: Proposal) -> String? {
+        guard let scope = proposal.contextScope else { return nil }
+        return scope.isNarrowed
+            ? L10n.proposalScopeNarrowed(scope.readObjectIDs.count, scope.omittedObjectIDs.count)
+            : L10n.proposalScopeComplete(scope.readObjectIDs.count)
     }
 
     /// What was read, and what is no longer there. A reference that cannot be

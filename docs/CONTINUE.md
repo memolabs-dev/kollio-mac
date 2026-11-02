@@ -280,8 +280,21 @@ The one implemented item is measurement of the intelligence that already existed
    camera's visible rectangle to cull. Connector routing samples its curve, so this is where the
    cost will show.
 6. Keyboard traversal between objects, so the canvas is usable without a pointer.
-7. **AI-12, manage a large context**, then CAN-09 and CAN-10. Those are the
-   remaining L3 lots, and each one now has the layer it
+7. **DOC-05 next. DEC-04, DEC-05, CAN-09, CAN-10 and AI-12 are now verified**: CAN-09 finds authored
+   titles, bodies and current or historical rejection reasons without a model,
+   filters permissions before matching, and reveals a folded result without
+   changing its decision. Cmd-F opens the temporary search card. The measured projection is the
+   payload, a required overflow refuses before generation, and a narrowed answer
+   carries its scope into the attribution panel. CAN-10 follows a deterministic
+   reading path with keyboard navigation, restores the exact prior camera, skips
+   deleted points honestly, and refuses every write or model call while presenting.
+   DEC-04 keeps criteria before results, validates evidence links and appends a
+   visible revision when an experiment is edited after a result. The next solo
+   DEC-05 keeps observation and conclusion separate, records measurements, limits
+   and a selected source, makes missing data visible, and requires a distinct
+   human decision before accepting a learning. The next solo implementation lot
+   is DOC-05; A27-06 remains a measurement task.
+   The remaining work has the layer it
    needs: a comparison is a reading, a synthesis is a derivative that must never
     replace its sources. **AI-06 is verified.** The model, the commands,
     the refusals, the file format, the export, the composer and the card are in:

@@ -21,6 +21,13 @@ public struct Proposal: Codable, Hashable, Sendable, Identifiable {
     /// than declared independently, so the two cannot disagree.
     public var attribution: GeneratorAttribution?
 
+    /// The part of the document the generator was allowed to see.
+    ///
+    /// When present, this records the exact scope of the context that was sent
+    /// to the model, so the interface can say whether the answer is complete or
+    /// narrowed. It is filled by the provider that built the proposal.
+    public var contextScope: ProposalContextScope?
+
     public struct Generator: Codable, Hashable, Sendable {
         public var name: String
         public var model: String?
@@ -60,7 +67,8 @@ public struct Proposal: Codable, Hashable, Sendable, Identifiable {
         placementHints: [PlacementHint] = [],
         limitations: [LocalizedText] = [],
         generator: Generator,
-        attribution: GeneratorAttribution? = nil
+        attribution: GeneratorAttribution? = nil,
+        contextScope: ProposalContextScope? = nil
     ) {
         self.proposalId = proposalId
         self.requestId = requestId
@@ -73,6 +81,7 @@ public struct Proposal: Codable, Hashable, Sendable, Identifiable {
         self.limitations = limitations
         self.generator = generator
         self.attribution = attribution
+        self.contextScope = contextScope
     }
 
     /// Object ids the proposal depends on. A document that changed any of them

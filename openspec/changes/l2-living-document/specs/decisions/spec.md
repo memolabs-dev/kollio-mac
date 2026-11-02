@@ -5,7 +5,7 @@ Reconstructed from `proposal.md` and the accumulated present tense in
 
 ---
 
-Statut : 4 exigence(s) appliquée(s), 2 exigence(s) en attente.
+Statut : 5 exigence(s) appliquée(s), 2 exigence(s) en attente.
 
 En attente, donc non opposables :
 - the reason belongs to the person
@@ -52,6 +52,32 @@ NOT be composed by the machine.
 ### Requirement: rejection is not deletion
 Nothing in the application SHALL delete a direction because it was rejected, and
 a rejected direction SHALL remain listable.
+
+### Requirement: a reopened document is the origin of what can be replayed
+A document reopened from disk SHALL have no replay origin earlier than its
+persisted state, and a preview of a recorded action SHALL be computed from that
+state forward.
+
+The rule exists because the opposite is easy to believe. A session that reopens
+a file has no memory of what came before the entries the file already contains,
+and a preview that pretended otherwise would show a past the product never saw.
+The differences view reports an empty diff in that case rather than inventing one.
+
+#### Scenario: a preview after reopening
+- **GIVEN** a document was saved, quit and reopened
+- **WHEN** the person previews its oldest recorded action
+- **THEN** the preview is the document as reopened
+- **AND** no state before that is claimed
+
+#### Scenario: a preview within one session
+- **GIVEN** two actions were recorded in this session
+- **WHEN** the person previews the first of them
+- **THEN** the preview is the document as it was before that action
+
+#### Scenario: a timeline that says nothing changed
+- **GIVEN** a preview that equals the present
+- **WHEN** the differences are shown
+- **THEN** they say so rather than rendering an empty list
 
 ### Requirement: a local decision is local
 A decision made on the machine SHALL NOT be reported as synchronised, and no

@@ -39,6 +39,10 @@ public struct HistoryLedger: Codable, Hashable, Sendable {
         entries.append(entry)
     }
 
+    public mutating func removeAll(where predicate: (HistoryEntry) -> Bool) {
+        entries.removeAll(where: predicate)
+    }
+
     public func entry(_ id: HistoryEntryID) -> HistoryEntry? {
         entries.first { $0.id == id }
     }
@@ -75,7 +79,8 @@ public struct HistoryLedger: Codable, Hashable, Sendable {
                     at: entry.at,
                     label: entry.label,
                     movedMeaning: entry.movedMeaning,
-                    wasLaterReverted: wasReverted
+                    wasLaterReverted: wasReverted,
+                    entryID: entry.id
                 )
             }
     }
@@ -146,12 +151,15 @@ public struct HistoryNarrativeItem: Hashable, Sendable, Identifiable {
     public var label: String
     public var movedMeaning: Bool
     public var wasLaterReverted: Bool
+    /// The ledger entry this row came from, so preview and restore can find it.
+    public var entryID: HistoryEntryID
 
-    public init(at: Date, label: String, movedMeaning: Bool, wasLaterReverted: Bool) {
+    public init(at: Date, label: String, movedMeaning: Bool, wasLaterReverted: Bool, entryID: HistoryEntryID) {
         self.at = at
         self.label = label
         self.movedMeaning = movedMeaning
         self.wasLaterReverted = wasLaterReverted
+        self.entryID = entryID
     }
 
     public var id: String { "\(at.timeIntervalSince1970)-\(label)" }

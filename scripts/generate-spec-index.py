@@ -186,6 +186,34 @@ STATUS_NOTES = {
                "branch placed off screen offers a way to see it, and nothing ever moves the view on "
                "its own. Still missing: the local organisation gesture, and a density measure for "
                "when to widen the search rather than place."),
+    "CAN-09": ("automatedVerified",
+               "AC01 a current or historical rejection reason is found and labelled honestly; "
+               "AC02 visiting and leaving a folded result changes only camera, selection and the "
+               "temporary reveal; AC03 an object outside the permitted set is absent and reported "
+               "as not searched. DocumentSearchTests and SearchNavigationTests. Search is local, "
+               "keeps a zero-result query, reports unloaded source content and opens from Cmd-F."),
+    "CAN-10": ("automatedVerified",
+               "AC01 ReadingPathTests and PresentationModeTests prove deterministic forward and "
+               "back navigation, source and decision points, and that a deleted point is named as "
+               "skipped rather than remapped; AC02 exit restores the exact previous camera; AC03 "
+               "presentation asks no model and the single command path refuses every write. "
+               "Cmd-Return starts or exits, arrow keys navigate, Escape exits, source reading stays "
+               "available, and presentation labels are localized."),
+    "DEC-04": ("automatedVerified",
+               "AC01 the criterion committed before a run remains readable in the first revision; "
+               "AC02 every expected-evidence link must resolve to an object in the document; AC03 "
+               "editing after a recorded result appends a visible revision without rewriting the "
+               "result or original criterion. ExperimentTests and ExperimentInterfaceTests. The "
+               "block remains attached to reasoning, simulations are labelled, and intelligence is "
+               "forbidden from building one."),
+    "DEC-05": ("automatedVerified",
+               "AC01 observation and outcome are separate fields and no conclusion is derived; "
+               "AC02 an inconclusive result requires a visible reason and half-written measurements "
+               "are refused; AC03 intelligence cannot record a result, propose a learning or accept "
+               "one. ExperimentResultTests and ResultInterfaceTests. Results append, carry measured "
+               "units, limits and a selected source, and undo removes exactly one recording. A "
+               "learning references the result and scope, remains proposed, and requires a distinct "
+               "decision within that scope before acceptance."),
     "CTX-02": ("automatedVerified",
                "AC01 a CSV with quotes, commas and newlines parses correctly; AC02 a PDF with no "
                "text layer is marked as having no text; AC03 a pasted link is never fetched. "
@@ -250,6 +278,15 @@ STATUS_NOTES = {
                "stored proposal cannot be contradicted by a separately declared "
                "destination. Owed: nobody has read the panel, and the two destinations "
                "that would need real consent have no implementation to test against."),
+    "AI-12": ("automatedVerified",
+               "ContextProjectionTests prove AC01 and AC02: the measured payload is the payload "
+               "sent, optional material is omitted without changing its authored text, required "
+               "targets are prioritised and an overflow is reported rather than dropped. "
+               "AppleAdapterTests prove the runtime window bounds the budget, a required overflow "
+               "is refused before either generation route, and a narrowed scope survives candidate "
+               "conversion. ProposalAttributionTests prove AC03: the answer states the number of "
+               "objects read and omitted from the recorded scope. The scope panel still needs a "
+               "person to inspect it in both languages and appearances."),
     "AI-06": ("automatedVerified",
                "74 core tests and 11 interface tests. The domain, the commands, the "
                "export, the composer and the card. AC01 the initial text stays "
@@ -364,6 +401,28 @@ STATUS_NOTES = {
                "InteractionReliabilityTests: the camera is identical before and after."),
     "DEC-03": ("automatedVerified",
                "InteractionReliabilityTests and VerticalSliceTests: one Keep, one undo."),
+    "DOC-05": ("automatedVerified",
+               "InitialContextTests prove the rename and the duplicate: a rename changes the "
+               "versioned title and the registry name together, an empty or failed rename leaves "
+               "the document and its file intact, and a duplicate is a new documentId with "
+               "remapped internal references, a new file and an untouched original. "
+               "DocumentDuplicatorTests prove the same copy at the domain level. "
+               "DocumentExportTests prove the export: the scope is frozen at preview time, a "
+               "scoped .kollio file reopens with no dangling internal reference, Markdown and PNG "
+               "are two renderings of the same blocks so the picture cannot show what the preview "
+               "did not, and no request id, actor or provenance crosses into a private export. "
+               "ExportArtifactsTests prove AC03 and the asset archive: a cited file is copied with "
+               "a manifest, a link is recorded as a link, and a file that moved is reported as "
+               "missing instead of silently omitted. The export panels are the system dialogs, so "
+               "there is no custom panel of ours to test, and the export commands still need a "
+               "human pass on a real document."),
+    "DEC-06": ("automatedVerified",
+               "HistoryTimelineTests and HistoryDifferenceTests prove AC01 and AC02: the origin of "
+               "an action is readable, previewing is read-only, and text plus relationship changes "
+               "carry both their earlier and current readings. HistoryRestoreTests prove AC03: a "
+               "restore is a validated command, one Undo/Redo action, remains replayable by later "
+               "previews, preserves the journal, and an explicit retention purge reports its count. "
+               "The timeline and restore controls still need a human visual and pointer pass."),
 }
 
 

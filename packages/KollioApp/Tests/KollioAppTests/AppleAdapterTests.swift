@@ -175,6 +175,35 @@ struct AppleAdapterTests {
     }
 
     @available(macOS 26.0, *)
+    @Test("A narrowed payload stays attached to the proposal it produced")
+    func narrowedScopeSurvivesConversion() throws {
+        let document = self.document()
+        let scope = ProposalContextScope(
+            readObjectIDs: ["object:ctx"],
+            omittedObjectIDs: ["object:existing"],
+            measuredCharacters: 420,
+            budgetCharacters: 500
+        )
+        let candidate = AppleCandidate(
+            outcome: "proposal",
+            rationale: "Une piste à partir du contexte disponible.",
+            ideas: [.init(title: "Par étapes", summary: "Réduire progressivement.", kind: "method")]
+        )
+
+        let converted = AppleCandidateConverter().convert(
+            candidate,
+            request: request(document: document),
+            document: document,
+            contextScope: scope
+        )
+        guard case .proposal(let proposal) = converted.result else {
+            Issue.record("expected a proposal")
+            return
+        }
+        #expect(proposal.contextScope == scope)
+    }
+
+    @available(macOS 26.0, *)
     @Test("An idea the canvas cannot render is dropped, not coerced")
     func unknownKindIsDropped() throws {
         let document = self.document()
@@ -399,6 +428,29 @@ struct AppleAdapterTests {
         // The target is what was asked about, so it is required and is reported as
         // missing rather than quietly dropped.
         #expect(projection.mayLeaveTheMachine == false)
+    }
+
+    @Test("A required item that does not fit is refused before either generation route")
+    func requiredOverflowIsRefused() {
+        let document = self.document()
+        let probe = StubAppleModelProbe(availability: .available, contextSize: 300)
+        var oversized = request(document: document)
+        oversized.context = [
+            .init(
+                objectID: "object:ctx",
+                kind: .context,
+                text: String(repeating: "contexte ", count: 400),
+                lifecycle: .active
+            )
+        ]
+
+        #expect(throws: AppleModelError.contextTooLarge) {
+            _ = try AppleLocalSuggestionService.prepare(
+                request: oversized,
+                document: document,
+                probe: probe
+            )
+        }
     }
 
     @Test("The budget never claims more room than the model has")

@@ -6,10 +6,24 @@ import Testing
 struct DocumentFormatTests {
     @Test("Round-trips through the portable JSON format")
     func roundTrip() throws {
-        let document = Fixture.sarah()
+        var document = Fixture.sarah()
+        document.title = "Sarah launch plan"
         let data = try DocumentCodec.encode(document)
         let decoded = try DocumentCodec.decode(data)
         #expect(decoded == document)
+    }
+
+    @Test("A document written before titles existed keeps opening")
+    func legacyDocumentWithoutTitle() throws {
+        let data = try DocumentCodec.encode(Fixture.sarah())
+        var json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        json.removeValue(forKey: "title")
+
+        let legacy = try JSONSerialization.data(withJSONObject: json)
+        let decoded = try DocumentCodec.decode(legacy)
+
+        #expect(decoded.title == "Kollio")
+        #expect(decoded.content == Fixture.sarah().content)
     }
 
     @Test("Stores no renderer type and no platform type")

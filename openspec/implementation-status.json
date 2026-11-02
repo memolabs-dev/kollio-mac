@@ -59,17 +59,17 @@
       "features": 8,
       "acceptanceCriteria": 24,
       "byStatus": {
-        "automatedVerified": 4,
-        "specified": 4
+        "automatedVerified": 5,
+        "specified": 3
       },
       "proved": [
         "DOC-01",
         "DOC-02",
         "DOC-03",
-        "DOC-04"
+        "DOC-04",
+        "DOC-05"
       ],
       "writtenOnly": [
-        "DOC-05",
         "DOC-06",
         "DOC-07",
         "DOC-08"
@@ -82,12 +82,11 @@
       "lot": "L1",
       "spec": "specs/canvas.md",
       "change": "changes/l1-entry-and-canvas",
-      "delivered": "specified",
+      "delivered": "automatedVerified",
       "features": 10,
       "acceptanceCriteria": 30,
       "byStatus": {
-        "automatedVerified": 8,
-        "specified": 2
+        "automatedVerified": 10
       },
       "proved": [
         "CAN-01",
@@ -97,12 +96,11 @@
         "CAN-05",
         "CAN-06",
         "CAN-07",
-        "CAN-08"
-      ],
-      "writtenOnly": [
+        "CAN-08",
         "CAN-09",
         "CAN-10"
       ],
+      "writtenOnly": [],
       "owedToAPerson": [
         "A real two-finger scroll on a trackpad, and its feel. The routing and the maths are proved; the gesture is not."
       ]
@@ -136,10 +134,10 @@
       "features": 13,
       "acceptanceCriteria": 40,
       "byStatus": {
-        "automatedVerified": 9,
+        "automatedVerified": 10,
         "humanVerified": 1,
         "inProgress": 1,
-        "specified": 2
+        "specified": 1
       },
       "proved": [
         "AI-01",
@@ -150,11 +148,11 @@
         "AI-07",
         "AI-08",
         "AI-09",
-        "AI-11"
+        "AI-11",
+        "AI-12"
       ],
       "writtenOnly": [
-        "AI-10",
-        "AI-12"
+        "AI-10"
       ],
       "owedToAPerson": [
         "Warm latency and a second identical call, to separate cold asset loading from generation. Cold is 9 to 15 s.",
@@ -166,23 +164,21 @@
       "lot": "L2",
       "spec": "specs/decisions.md",
       "change": "changes/l2-living-document",
-      "delivered": "specified",
+      "delivered": "automatedVerified",
       "features": 6,
       "acceptanceCriteria": 18,
       "byStatus": {
-        "automatedVerified": 3,
-        "specified": 3
+        "automatedVerified": 6
       },
       "proved": [
         "DEC-01",
         "DEC-02",
-        "DEC-03"
-      ],
-      "writtenOnly": [
+        "DEC-03",
         "DEC-04",
         "DEC-05",
         "DEC-06"
       ],
+      "writtenOnly": [],
       "owedToAPerson": [
         "A real proposal kept, set aside and reopened by hand."
       ]
@@ -288,10 +284,10 @@
     "features": 72,
     "acceptanceCriteria": 217,
     "byStatus": {
-      "automatedVerified": 31,
+      "automatedVerified": 38,
       "humanVerified": 1,
       "inProgress": 1,
-      "specified": 39
+      "specified": 32
     }
   }
 }

@@ -19,11 +19,16 @@
     "schemaVersion": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 7,
-      "description": "2 added `sources`, 3 added `claims`, 4 added `clarifications`, 5 added `comparisons`, 6 added `summaries`, 7 added `history`. A file written before any of them is a document without them, not a broken one."
+      "maximum": 9,
+      "description": "2 added `sources`, 3 added `claims`, 4 added `clarifications`, 5 added `comparisons`, 6 added `summaries`, 7 added `history`, 8 added `experiments`, 9 added the document `title`. A file written before any of them is a document without them, not a broken one."
     },
     "documentId": {
       "type": "string"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The user-authored document title. Files written before schema 9 open with the default title."
     },
     "revision": {
       "type": "integer",
@@ -166,6 +171,27 @@
         }
       }
     },
+    "experiments": {
+      "type": "object",
+      "description": "Validation experiments built on the reasoning. Absent before version 8. An experiment is the block a person commits to before running anything: a question, a method, a success criterion, the evidence it will be judged against, and an append-only list of revisions so the criterion as it stood before a result stays readable. An overdue date is not a failure and an unrecorded conclusion stays unknown: the type carries no outcome, not even a default.",
+      "additionalProperties": false,
+      "properties": {
+        "experiments": {
+          "type": "array",
+          "description": "Keyed by experiment id in the alternating `[id, value]` form the codec uses for a keyed container of single-value keys, exactly like `sources`, `claims`, `clarifications`, `comparisons` and `summaries`.",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "$ref": "#/$defs/experiment"
+              }
+            ]
+          }
+        }
+      }
+    },
     "history": {
       "type": "object",
       "description": "What a person did, in order. Absent before version 7, and a document may legitimately have none: the ledger is an audit trail, not the truth, and it cannot be replayed.",
@@ -182,6 +208,337 @@
     }
   },
   "$defs": {
+    "experiment": {
+      "type": "object",
+      "required": [
+        "targetObjectID",
+        "question",
+        "successCriterion",
+        "expectedEvidence",
+        "isSimulation",
+        "revisions",
+        "id",
+        "createdAt",
+        "provenance"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "targetObjectID": {
+          "type": "string",
+          "description": "The reasoning this experiment validates. Attached to the reasoning, never to a board."
+        },
+        "question": {
+          "$ref": "#/$defs/localizedText"
+        },
+        "method": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/localizedText"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "successCriterion": {
+          "$ref": "#/$defs/localizedText"
+        },
+        "expectedEvidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Objects the document already holds that the result will be judged against. Every id names a real object; the command layer refuses a link to a thing that is not there."
+        },
+        "owner": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "dueDate": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional, and never a status. An overdue date is not a failure."
+        },
+        "isSimulation": {
+          "type": "boolean",
+          "description": "A simulation is labelled as one."
+        },
+        "revisions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/experimentRevision"
+          }
+        },
+        "results": {
+          "type": "array",
+          "description": "Results recorded against the block, oldest first, append-only. There is no edit: the observation a person wrote is a record, and a record that can be rewritten is a draft. The newest is the one a reader reads; the ones before it stay readable.",
+          "items": {
+            "$ref": "#/$defs/experimentResult"
+          }
+        },
+        "findings": {
+          "type": "array",
+          "description": "Learnings proposed from those results. A learning lands as proposed; accepted means it names a real decision in the document, and nothing here manufactures one.",
+          "items": {
+            "$ref": "#/$defs/learnedFinding"
+          }
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        }
+      }
+    },
+    "experimentResult": {
+      "type": "object",
+      "required": [
+        "observation",
+        "measurements",
+        "outcome",
+        "provenance",
+        "recordedAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "observation": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the person saw after running something. Kept apart from the outcome: they are both required, they are not each other, and nothing derives one from the other."
+        },
+        "measurements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/experimentMeasurement"
+          }
+        },
+        "limits": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the run could not do. The second half of missing data being visible."
+        },
+        "sourceObjectID": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "$ref": "#/$defs/experimentOutcome"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "experimentMeasurement": {
+      "type": "object",
+      "required": [
+        "value",
+        "unit"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "type": "number"
+        },
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A measurement without a unit is not a measurement, it is a coincidence with a decimal point."
+        }
+      }
+    },
+    "experimentOutcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "conclusive"
+          ],
+          "properties": {
+            "conclusive": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "_0"
+              ],
+              "properties": {
+                "_0": {
+                  "type": "string",
+                  "enum": [
+                    "criterionMet",
+                    "criterionNotMet"
+                  ],
+                  "description": "The stance on the criterion. Neither value is a truth claim about the world; only a further decision says what follows."
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "inconclusive"
+          ],
+          "properties": {
+            "inconclusive": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "_0"
+              ],
+              "properties": {
+                "_0": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Data insufficient, named. There is no validity percentage anywhere in this format, because an invented one is worse than no answer."
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "learnedFinding": {
+      "type": "object",
+      "required": [
+        "statement",
+        "experimentID",
+        "revisionIndex",
+        "scopeObjectIDs",
+        "status",
+        "proposedAt",
+        "provenance"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "statement": {
+          "$ref": "#/$defs/localizedText"
+        },
+        "experimentID": {
+          "type": "string"
+        },
+        "revisionIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The result it learned from, by position in the append-only list."
+        },
+        "scopeObjectIDs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "proposed",
+            "accepted"
+          ]
+        },
+        "acceptedByDecision": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Accepting a learning means naming a decision that already exists. A decision made here would be a decision in disguise."
+        },
+        "proposedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        }
+      }
+    },
+    "experimentRevision": {
+      "type": "object",
+      "required": [
+        "question",
+        "successCriterion",
+        "expectedEvidence",
+        "provenance",
+        "recordedAt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "question": {
+          "$ref": "#/$defs/localizedText"
+        },
+        "method": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/localizedText"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "successCriterion": {
+          "$ref": "#/$defs/localizedText"
+        },
+        "expectedEvidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        },
+        "recordedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+
     "position": {
       "type": "object",
       "required": [

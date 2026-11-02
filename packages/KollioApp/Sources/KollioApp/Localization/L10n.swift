@@ -101,6 +101,96 @@ public enum L10n {
     public static var claimStateSatisfied: String { callAsFunction("claim.satisfied") }
     public static var claimStateNotApplicable: String { callAsFunction("claim.notApplicable") }
     public static var claimComposerPrompt: String { callAsFunction("claim.composerPrompt") }
+    public static var experimentComposerPrompt: String { callAsFunction("experiment.composerPrompt") }
+    public static var experimentQuestionPlaceholder: String { callAsFunction("experiment.questionPlaceholder") }
+    public static var experimentCriterionPlaceholder: String { callAsFunction("experiment.criterionPlaceholder") }
+    public static var experimentMethodPlaceholder: String { callAsFunction("experiment.methodPlaceholder") }
+    public static var experimentBuild: String { callAsFunction("experiment.build") }
+    public static var experimentIsSimulation: String { callAsFunction("experiment.isSimulation") }
+    public static var experimentSimulationHint: String { callAsFunction("experiment.simulationHint") }
+    public static var experimentEvidenceHint: String { callAsFunction("experiment.evidenceHint") }
+    public static var experimentQuestionEmpty: String { callAsFunction("experiment.questionEmpty") }
+    public static var experimentCriterionEmpty: String { callAsFunction("experiment.criterionEmpty") }
+    public static var undoCreateExperiment: String { callAsFunction("undo.createExperiment") }
+    public static var experimentReviewAction: String { callAsFunction("experiment.reviewAction") }
+    public static var resultPrompt: String { callAsFunction("result.prompt") }
+    public static var resultRecorded: (Int) -> String { { count in
+        String(format: callAsFunction("result.recorded"), count)
+    } }
+    public static var resultObservedLabel: String { callAsFunction("result.observedLabel") }
+    public static var resultMeasuredLabel: String { callAsFunction("result.measuredLabel") }
+    public static var resultLimitsLabel: String { callAsFunction("result.limitsLabel") }
+    public static var resultLearningPlaceholder: String { callAsFunction("result.learningPlaceholder") }
+    public static var historyTitle: String { callAsFunction("history.title") }
+    public static var historyReviewAction: String { callAsFunction("history.reviewAction") }
+    public static var historyLaterReverted: String { callAsFunction("history.laterReverted") }
+    public static var historyClose: String { callAsFunction("history.close") }
+    public static var historyPreview: String { callAsFunction("history.preview") }
+    public static var historyPreviewTitle: String { callAsFunction("history.previewTitle") }
+    public static var historyRestore: String { callAsFunction("history.restore") }
+    public static var historyRestoreLabel: String { callAsFunction("history.restoreLabel") }
+    public static var historyPurge: String { callAsFunction("history.purge") }
+    public static var historyPurgeTitle: String { callAsFunction("history.purgeTitle") }
+    /// %1$@ days, %2$@ actions. The count is in the button, not only in the
+    /// message, so the decision is taken with the number in front of it.
+    public static func historyPurgeConfirm(_ days: Int, _ count: Int) -> String {
+        String(format: callAsFunction("history.purgeConfirm"), days, count)
+    }
+    public static var historyPurgeWarning: String { callAsFunction("history.purgeWarning") }
+    public static var historyPreviewNothingChanged: String { callAsFunction("history.previewNothingChanged") }
+    /// %1$@ was the text, %2$@ is the text. Both readings, because "changed"
+    /// without "to what" says nothing.
+    public static func historyDiffText(_ from: String, _ to: String) -> String {
+        String(format: callAsFunction("history.diffText"), from, to)
+    }
+    public static func historyDiffAdded(_ now: String) -> String {
+        String(format: callAsFunction("history.diffAdded"), now)
+    }
+    public static func historyDiffRemoved(_ then: String) -> String {
+        String(format: callAsFunction("history.diffRemoved"), then)
+    }
+    /// %1$@ is the kind's verb in the interface's language, %2$@ the other end's
+    /// identifier. An identifier rather than a title: the other object may be one
+    /// this person cannot read, and naming it by what it says would be inventing.
+    public static func historyDiffLinkAdded(_ verb: String, _ other: String) -> String {
+        String(format: callAsFunction("history.diffLinkAdded"), verb, other)
+    }
+    public static func historyDiffLinkRemoved(_ verb: String, _ other: String) -> String {
+        String(format: callAsFunction("history.diffLinkRemoved"), verb, other)
+    }
+    /// %1$@ objects, %2$@ relations, revision %3$@. Counts, never a sentence
+    /// about what the document contains: this is a position, not a summary.
+    public static func historyPreviewSummary(_ objects: Int, _ relations: Int, _ revision: Int) -> String {
+        String(
+            format: callAsFunction("history.previewSummary"),
+            objects, relations, revision
+        )
+    }
+    public static var resultObservationPlaceholder: String { callAsFunction("result.observationPlaceholder") }
+    public static var resultMeasurementPlaceholder: String { callAsFunction("result.measurementPlaceholder") }
+    public static var resultUnitPlaceholder: String { callAsFunction("result.unitPlaceholder") }
+    public static var resultLimitsPlaceholder: String { callAsFunction("result.limitsPlaceholder") }
+    public static var resultInconclusive: String { callAsFunction("result.inconclusive") }
+    public static var resultReasonPlaceholder: String { callAsFunction("result.reasonPlaceholder") }
+    public static var resultCriterionMet: String { callAsFunction("result.criterionMet") }
+    public static var resultCriterionNotMet: String { callAsFunction("result.criterionNotMet") }
+    public static var resultRecord: String { callAsFunction("result.record") }
+    public static var resultObservationEmpty: String { callAsFunction("result.observationEmpty") }
+    public static var resultMeasurementIncomplete: String { callAsFunction("result.measurementIncomplete") }
+    public static var resultReasonMissing: String { callAsFunction("result.reasonMissing") }
+    public static var resultLearningEmpty: String { callAsFunction("result.learningEmpty") }
+    public static var resultOutcomeLabel: String { callAsFunction("result.outcomeLabel") }
+    public static var undoRecordResult: String { callAsFunction("undo.recordResult") }
+    public static var undoProposeLearning: String { callAsFunction("undo.proposeLearning") }
+    public static var experimentCardTitle: String { callAsFunction("experiment.cardTitle") }
+    public static var experimentCardQuestion: String { callAsFunction("experiment.cardQuestion") }
+    public static var experimentCardMethod: String { callAsFunction("experiment.cardMethod") }
+    public static var experimentCardCriterion: String { callAsFunction("experiment.cardCriterion") }
+    public static var experimentCardEvidence: String { callAsFunction("experiment.cardEvidence") }
+    public static var experimentCardClose: String { callAsFunction("experiment.cardClose") }
+    public static func experimentCardRevisions(_ count: Int) -> String {
+        String(format: callAsFunction("experiment.cardRevisions"), count)
+    }
     public static var claimCriterionPlaceholder: String { callAsFunction("claim.criterionPlaceholder") }
     public static var claimScopeHint: String { callAsFunction("claim.scopeHint") }
     public static var claimStateIt: String { callAsFunction("claim.stateIt") }
@@ -256,6 +346,84 @@ public enum L10n {
         )
     }
 
+    // MARK: The scope of an answer (AI-12)
+
+    public static var proposalScopeTitle: String { callAsFunction("proposal.scopeTitle") }
+    /// The whole answer, every time. Said in full rather than only when something
+    /// was left out, so the line that is normally quiet is still a fact.
+    public static func proposalScopeComplete(_ read: Int) -> String {
+        String(format: callAsFunction("proposal.scopeComplete"), read)
+    }
+    public static func proposalScopeNarrowed(_ read: Int, _ omitted: Int) -> String {
+        String(format: callAsFunction("proposal.scopeNarrowed"), read, omitted)
+    }
+    /// The status line, when the answer was produced from less than the whole
+    /// document. Not the attribution panel: this one is not behind a disclosure,
+    /// because the scope of an answer is part of the answer.
+    public static func statusContextNarrowed(_ omitted: Int) -> String {
+        String(format: callAsFunction("status.contextNarrowed"), omitted)
+    }
+
+    // MARK: The on-device model (AI-12, CTX-06)
+
+    public static var appleOnThisMac: String { callAsFunction("apple.onThisMac") }
+    public static var appleNotEligible: String { callAsFunction("apple.notEligible") }
+    public static var appleIntelligenceDisabled: String { callAsFunction("apple.intelligenceDisabled") }
+    public static var appleAssetsNotReady: String { callAsFunction("apple.assetsNotReady") }
+    public static var appleFrameworkUnavailable: String { callAsFunction("apple.frameworkUnavailable") }
+    public static func appleUnsupportedLanguage(_ language: String) -> String {
+        String(format: callAsFunction("apple.unsupportedLanguage"), language)
+    }
+    public static var appleGenerationFailed: String { callAsFunction("apple.generationFailed") }
+    /// Shown when a required part of the request does not fit the model's window.
+    /// It asks for a narrower question rather than answering about less and saying
+    /// nothing, which is the only honest way to handle a constraint that will not
+    /// fit.
+    public static var appleContextTooLarge: String { callAsFunction("apple.contextTooLarge") }
+
+    // MARK: Presentation (CAN-10)
+
+    public static var presentation: String { callAsFunction("presentation.title") }
+    public static var presentationStart: String { callAsFunction("presentation.start") }
+    public static var presentationExit: String { callAsFunction("presentation.exit") }
+    public static var presentationNext: String { callAsFunction("presentation.next") }
+    public static var presentationPrevious: String { callAsFunction("presentation.previous") }
+    public static var presentationReadOnly: String { callAsFunction("presentation.readOnly") }
+    public static var presentationNothingToPresent: String { callAsFunction("presentation.nothingToPresent") }
+    public static var presentationSkipped: String { callAsFunction("presentation.skipped") }
+    public static var presentationNoAnchor: String { callAsFunction("presentation.noAnchor") }
+    public static var presentationOpenSource: String { callAsFunction("presentation.openSource") }
+    public static var presentationKindObject: String { callAsFunction("presentation.kind.object") }
+    public static var presentationKindSource: String { callAsFunction("presentation.kind.source") }
+    public static var presentationKindDecision: String { callAsFunction("presentation.kind.decision") }
+    public static func presentationProgress(_ position: Int, _ total: Int) -> String {
+        String(format: callAsFunction("presentation.progress"), position, total)
+    }
+
+    // MARK: Search (CAN-09)
+
+    public static var search: String { callAsFunction("search.title") }
+    public static var searchPlaceholder: String { callAsFunction("search.placeholder") }
+    public static var searchClear: String { callAsFunction("search.clear") }
+    public static var searchClearHint: String { callAsFunction("search.clearHint") }
+    public static var searchNoResults: String { callAsFunction("search.noResults") }
+    public static var searchStateVisible: String { callAsFunction("search.state.visible") }
+    public static var searchStateSetAside: String { callAsFunction("search.state.setAside") }
+    public static var searchStateArchived: String { callAsFunction("search.state.archived") }
+    public static var searchFieldTitle: String { callAsFunction("search.field.title") }
+    public static var searchFieldBody: String { callAsFunction("search.field.body") }
+    public static var searchFieldReason: String { callAsFunction("search.field.reason") }
+    public static var searchNotSearched: String { callAsFunction("search.notSearched") }
+    public static func searchNotSearchedSources(_ count: Int) -> String {
+        String(format: callAsFunction("search.notSearchedSources"), count)
+    }
+    /// What is not in the result set, in one line. "No results" and "nothing was
+    /// searched" are different answers and only one of them is ever true.
+    public static func searchPartial(_ skipped: Int) -> String {
+        String(format: callAsFunction("search.partial"), skipped)
+    }
+    public static var searchReopenHint: String { callAsFunction("search.reopenHint") }
+
     public static var summaryDefaultTitle: String { callAsFunction("summary.defaultTitle") }
     public static var summaryDefaultObjective: String { callAsFunction("summary.defaultObjective") }
     public static var summaryNothingRecorded: String { callAsFunction("summary.nothingRecorded") }
@@ -354,6 +522,7 @@ public enum L10n {
 
     // Undo labels
     public static var undoMove: String { callAsFunction("undo.move") }
+    public static var undoRenameDocument: String { callAsFunction("undo.renameDocument") }
     public static var actionDuplicateOccurrence: String { callAsFunction("action.duplicateOccurrence") }
     public static var actionDuplicateVariant: String { callAsFunction("action.duplicateVariant") }
     public static var actionRemoveOccurrence: String { callAsFunction("action.removeOccurrence") }
@@ -375,6 +544,19 @@ public enum L10n {
     public static var newDocument: String { callAsFunction("menu.newDocument") }
     public static var openDemo: String { callAsFunction("menu.openDemo") }
     public static var save: String { callAsFunction("menu.save") }
+    public static var renameDocument: String { callAsFunction("document.rename") }
+    public static var duplicateDocument: String { callAsFunction("document.duplicate") }
+    public static var documentName: String { callAsFunction("document.name") }
+    public static var exportMarkdown: String { callAsFunction("document.exportMarkdown") }
+    public static var exportKollio: String { callAsFunction("document.exportKollio") }
+    public static var exportPNG: String { callAsFunction("document.exportPNG") }
+    public static var exportAssets: String { callAsFunction("document.exportAssets") }
+    public static var assetsArchiveSuffix: String { callAsFunction("document.assetsArchiveSuffix") }
+    public static var assetsArchiveEmpty: String { callAsFunction("document.assetsArchiveEmpty") }
+    public static func assetsArchived(copied: Int, missing: Int) -> String {
+        String(format: callAsFunction("document.assetsArchived"), copied, missing)
+    }
+    public static var copySuffix: String { callAsFunction("document.copySuffix") }
     public static var fit: String { callAsFunction("menu.fit") }
     public static var actualSize: String { callAsFunction("menu.actualSize") }
     public static var undo: String { callAsFunction("menu.undo") }

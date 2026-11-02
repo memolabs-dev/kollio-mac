@@ -3,6 +3,7 @@ import Foundation
 /// Every meaningful mutation goes through a validated command. A view never
 /// mutates several pieces of state on its own.
 public enum Command: Codable, Hashable, Sendable {
+    case renameDocument(RenameDocument)
     case createObject(CreateObject)
     case updateObjectText(UpdateObjectText)
     case addRelationship(AddRelationship)
@@ -49,6 +50,12 @@ public enum Command: Codable, Hashable, Sendable {
     case setSummarySection(SetSummarySection)
     case confirmSummary(ConfirmSummary)
     case removeSummary(RemoveSummary)
+    case createExperiment(CreateExperiment)
+    case editExperiment(EditExperiment)
+    case recordExperimentResult(RecordExperimentResult)
+    case proposeLearning(ProposeLearning)
+    case acceptLearning(AcceptLearning)
+    case restoreDocument(RestoreDocument)
 
     /// Presentation-only commands never change the meaning of the document.
     public var isSemantic: Bool {
@@ -65,7 +72,7 @@ public enum Command: Codable, Hashable, Sendable {
             // what it means, so it must not move semanticRevision. A *variant* is a
             // new claim, and is deliberately not in this list.
             return false
-        case .createObject, .updateObjectText, .addRelationship, .removeRelationship,
+        case .renameDocument, .createObject, .updateObjectText, .addRelationship, .removeRelationship,
              .createScenario, .recordDecision, .revokeDecision,
              .addContributionToProduct, .applyProposal, .rejectProposal,
              .attachSource, .importSourceRevision, .addCitation, .recordVerification,
@@ -77,7 +84,9 @@ public enum Command: Codable, Hashable, Sendable {
              .recordComparisonCell,
              .setCriterionWeight, .setCriterionMeasure, .keepDirection,
              .startSummary, .setSummaryLine, .setSummarySection, .confirmSummary,
-             .removeSummary:
+             .removeSummary, .createExperiment, .editExperiment,
+             .recordExperimentResult, .proposeLearning, .acceptLearning,
+             .restoreDocument:
             // A comparison is a record of what a person weighed against what, and
             // a synthesis is a record of what was read and what was concluded from
             // it, so both are meaning rather than layout. A synthesis is a
@@ -87,9 +96,19 @@ public enum Command: Codable, Hashable, Sendable {
         }
     }
 
+    /// The experiment a learning learned from, or nil. One lookup, two uses.
+    private static func experimentTarget(in document: KollioDocument, experimentID: ExperimentID) -> ObjectID? {
+        document.experiments.experiment(experimentID)?.targetObjectID
+    }
+
+    private static func finding(in document: KollioDocument, id: FindingID) -> LearnedFinding? {
+        document.experiments.finding(id)
+    }
+
     /// A short label used as the undo label.
     public var undoLabel: String {
         switch self {
+        case .renameDocument: return "undo.renameDocument"
         case .createObject: return "undo.createObject"
         case .updateObjectText: return "undo.updateObjectText"
         case .addRelationship: return "undo.addRelationship"
@@ -136,7 +155,23 @@ public enum Command: Codable, Hashable, Sendable {
         case .setSummarySection: return "undo.setSummarySection"
         case .confirmSummary: return "undo.confirmSummary"
         case .removeSummary: return "undo.removeSummary"
+        case .createExperiment: return "undo.createExperiment"
+        case .editExperiment: return "undo.editExperiment"
+        case .recordExperimentResult: return "undo.recordResult"
+        case .proposeLearning: return "undo.proposeLearning"
+        case .acceptLearning: return "undo.acceptLearning"
+        case .restoreDocument: return "undo.restoreDocument"
         }
+    }
+}
+
+public struct RenameDocument: Codable, Hashable, Sendable {
+    public var title: String
+    public var provenance: Provenance
+
+    public init(title: String, provenance: Provenance) {
+        self.title = title
+        self.provenance = provenance
     }
 }
 
@@ -847,6 +882,181 @@ public struct StartSummary: Codable, Hashable, Sendable {
     }
 }
 
+/// Records a result against an experiment (DEC-05).
+///
+/// Recording is appending: there is no edit-a-result command, because the
+/// observation a person wrote after running something is a record of what they
+/// saw, and a record that can be rewritten is a draft. The command validates
+/// the two refusals that keep a result honest — an observation with nothing in
+/// it, and an inconclusive outcome with no reason — plus the two quieter ones:
+/// a measurement without a unit, and a source that names nothing.
+public struct RecordExperimentResult: Codable, Hashable, Sendable {
+    public var id: ExperimentID
+    public var observation: String
+    public var measurements: [ExperimentMeasurement]
+    public var limits: String?
+    public var sourceObjectID: ObjectID?
+    public var outcome: ExperimentResultVersion.Outcome
+    public var provenance: Provenance
+
+    public init(
+        id: ExperimentID,
+        observation: String,
+        measurements: [ExperimentMeasurement] = [],
+        limits: String? = nil,
+        sourceObjectID: ObjectID? = nil,
+        outcome: ExperimentResultVersion.Outcome,
+        provenance: Provenance
+    ) {
+        self.id = id
+        self.observation = observation
+        self.measurements = measurements
+        self.limits = limits
+        self.sourceObjectID = sourceObjectID
+        self.outcome = outcome
+        self.provenance = provenance
+    }
+}
+
+/// Proposes a learning from a recorded result (DEC-05).
+///
+/// The learning is authored: this command carries words a person wrote, not a
+/// conclusion computed from numbers. It lands as `proposed`, and it changes
+/// nothing in the document by existing — the possible decision it points at
+/// remains a separate act.
+public struct ProposeLearning: Codable, Hashable, Sendable {
+    public var id: FindingID
+    public var experimentID: ExperimentID
+    public var statement: LocalizedText
+    public var scopeObjectIDs: [ObjectID]
+    public var provenance: Provenance
+
+    public init(
+        id: FindingID,
+        experimentID: ExperimentID,
+        statement: LocalizedText,
+        scopeObjectIDs: [ObjectID],
+        provenance: Provenance
+    ) {
+        self.id = id
+        self.experimentID = experimentID
+        self.statement = statement
+        self.scopeObjectIDs = scopeObjectIDs
+        self.provenance = provenance
+    }
+}
+
+/// Accepts a proposed learning by naming the decision that was taken (DEC-05).
+///
+/// The decision is not created here. It already exists, recorded through
+/// DEC-01, and this command links the learning to it after checking the two
+/// belong together: the decision must be about something the learning's scope
+/// covers. Accepting a learning without a decision would be a way to change
+/// the document by saying that something was learned, which is a decision in
+/// disguise.
+/// A validated replacement of the document's authored state.
+///
+/// History is deliberately excluded from the encoded snapshot. The journal is
+/// the record of how the current document was reached; restoring content must
+/// append to that record, never replace it with the older record carried by the
+/// preview. Metadata and revisions are likewise owned by `DocumentStore`, which
+/// applies this as one ordinary transaction.
+public struct RestoreDocument: Codable, Hashable, Sendable {
+    public var snapshot: Data
+
+    public init(document: KollioDocument) throws {
+        var state = document
+        state.history = HistoryLedger()
+        self.snapshot = try DocumentCodec.encode(state)
+    }
+}
+
+public struct AcceptLearning: Codable, Hashable, Sendable {
+    public var id: FindingID
+    public var decisionID: DecisionID
+    public var provenance: Provenance
+
+    public init(id: FindingID, decisionID: DecisionID, provenance: Provenance) {
+        self.id = id
+        self.decisionID = decisionID
+        self.provenance = provenance
+    }
+}
+
+/// Builds a validation experiment on an object's reasoning (DEC-04).
+///
+/// The command validates the two things the block cannot survive without: a
+/// question and a success criterion. It also validates every evidence link
+/// against the document, because a link to a thing that does not exist is not
+/// a link, it is a hope.
+public struct CreateExperiment: Codable, Hashable, Sendable {
+    public var id: ExperimentID
+    public var targetObjectID: ObjectID
+    public var question: LocalizedText
+    public var method: LocalizedText?
+    public var successCriterion: LocalizedText
+    public var expectedEvidence: [ObjectID]
+    public var owner: ActorID?
+    public var dueDate: Date?
+    public var isSimulation: Bool
+    public var provenance: Provenance
+
+    public init(
+        id: ExperimentID,
+        targetObjectID: ObjectID,
+        question: LocalizedText,
+        method: LocalizedText? = nil,
+        successCriterion: LocalizedText,
+        expectedEvidence: [ObjectID] = [],
+        owner: ActorID? = nil,
+        dueDate: Date? = nil,
+        isSimulation: Bool = false,
+        provenance: Provenance
+    ) {
+        self.id = id
+        self.targetObjectID = targetObjectID
+        self.question = question
+        self.method = method
+        self.successCriterion = successCriterion
+        self.expectedEvidence = expectedEvidence
+        self.owner = owner
+        self.dueDate = dueDate
+        self.isSimulation = isSimulation
+        self.provenance = provenance
+    }
+}
+
+/// Edits a validation experiment by appending a revision (DEC-04 AC03).
+///
+/// Editing never rewrites: the fields a result will be judged against go into a
+/// new revision, and the old ones stay readable. Before a result exists this is
+/// ordinary refinement; after one exists it is the visible revision the
+/// specification asks for, and the same append does both.
+public struct EditExperiment: Codable, Hashable, Sendable {
+    public var id: ExperimentID
+    public var question: LocalizedText
+    public var method: LocalizedText?
+    public var successCriterion: LocalizedText
+    public var expectedEvidence: [ObjectID]
+    public var provenance: Provenance
+
+    public init(
+        id: ExperimentID,
+        question: LocalizedText,
+        method: LocalizedText? = nil,
+        successCriterion: LocalizedText,
+        expectedEvidence: [ObjectID] = [],
+        provenance: Provenance
+    ) {
+        self.id = id
+        self.question = question
+        self.method = method
+        self.successCriterion = successCriterion
+        self.expectedEvidence = expectedEvidence
+        self.provenance = provenance
+    }
+}
+
 /// Adds a line to a section, or replaces one that is already there.
 ///
 /// One command for both, because they are one act: a person writing a line into a
@@ -1013,6 +1223,28 @@ extension Command {
             return [keep.directionID]
         case .startSummary(let start):
             return Set(start.summary.readSet.objectIDs)
+        case .createExperiment(let create):
+            return Set([create.targetObjectID] + create.expectedEvidence)
+        case .editExperiment(let edit):
+            // The command names an experiment, not an object. Resolving through
+            // the ledger is the honest answer, and it also returns the evidence
+            // the edit re-attached, because those are what the edit touched.
+            guard let experiment = document.experiments.experiment(edit.id) else { return [] }
+            return Set([experiment.targetObjectID] + edit.expectedEvidence)
+        case .recordExperimentResult(let record):
+            guard let experiment = document.experiments.experiment(record.id) else { return [] }
+            var touched = [experiment.targetObjectID]
+            if let source = record.sourceObjectID { touched.append(source) }
+            return Set(touched)
+        case .proposeLearning(let propose):
+            guard let experiment = document.experiments.experiment(propose.experimentID) else { return [] }
+            return Set([experiment.targetObjectID] + propose.scopeObjectIDs)
+        case .acceptLearning(let accept):
+            // The learning and the decision both anchor in the document; the
+            // command touched the learning, and the decision's target through it.
+            guard let finding = Self.finding(in: document, id: accept.id),
+                  let decision = document.decisions[accept.decisionID] else { return [] }
+            return Set([Self.experimentTarget(in: document, experimentID: finding.experimentID) ?? decision.targetObjectID, decision.targetObjectID])
         case .setSummaryLine(let line):
             return Set(line.line.references.compactMap {
                 $0.kind == .object ? ObjectID($0.id) : nil

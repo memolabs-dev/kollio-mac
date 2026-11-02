@@ -364,7 +364,7 @@ def main():
             add("\t\t\t\tDEBUG_INFORMATION_FORMAT = \"dwarf-with-dsym\";")
             add("\t\t\t\tENABLE_NS_ASSERTIONS = NO;")
             add("\t\t\t\tSWIFT_COMPILATION_MODE = wholemodule;")
-        add("\t\t\t\tMACOSX_DEPLOYMENT_TARGET = 14.0;")
+        add("\t\t\t\tMACOSX_DEPLOYMENT_TARGET = 26.0;")
         add("\t\t\t\tSDKROOT = macosx;")
         add("\t\t\t\tSWIFT_VERSION = 6.0;")
         add("\t\t\t};")

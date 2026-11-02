@@ -27,5 +27,26 @@
 		<string>fr</string>
 		<string>en</string>
 	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+				<string>public.content</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Kollio Document</string>
+			<key>UTTypeIdentifier</key>
+			<string>dev.kollio.document</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>kollio</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>

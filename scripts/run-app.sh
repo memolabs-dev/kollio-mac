@@ -11,16 +11,20 @@ PACKAGE="$ROOT/packages/KollioApp"
 APP="$ROOT/build/Kollio.app"
 
 cd "$PACKAGE"
-swift build -c debug --product Kollio
+# This script can run inside an IDE or agent sandbox. SwiftPM's subprocess
+# sandbox cannot be nested there, and macro expansion then fails before the
+# app is built. The outer environment still provides its own sandbox.
+SWIFT_BUILD=(swift build --disable-sandbox)
+"${SWIFT_BUILD[@]}" -c debug --product Kollio
 
-BIN="$(swift build -c debug --product Kollio --show-bin-path)/Kollio"
+BIN="$("${SWIFT_BUILD[@]}" -c debug --product Kollio --show-bin-path)/Kollio"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Kollio"
 cp "$PACKAGE/Sources/KollioApp/Resources/Localizable.xcstrings" "$APP/Contents/Resources/" 2>/dev/null || true
 
 # The localized strings produced by SwiftPM, if any.
-find "$(swift build -c debug --show-bin-path)" -name "*.bundle" -maxdepth 1 -exec cp -R {} "$APP/Contents/Resources/" \; 2>/dev/null || true
+find "$("${SWIFT_BUILD[@]}" -c debug --show-bin-path)" -name "*.bundle" -maxdepth 1 -exec cp -R {} "$APP/Contents/Resources/" \; 2>/dev/null || true
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

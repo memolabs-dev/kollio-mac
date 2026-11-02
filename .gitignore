@@ -8,3 +8,9 @@ build/
 # Per-user Xcode state: window layout and toolbar customisation, machine specific
 xcuserdata/
 __pycache__/
+# The LLM-facing product pack lives outside the repository (~/projects/doc-for-llm).
+# If it is ever generated or copied in, it must not be published with the product.
+doc-for-llm/
+
+# Claude Code : profil de skills propre a cette machine (agents-router)
+.claude/skills/
